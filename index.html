@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ficha Piso Pélvico | All U Moves</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="container">
+      <div class="brand">
+        <div class="logo">PF</div>
+        <div>
+          <div class="title">Ficha Clínica Piso Pélvico</div>
+          <div class="subtitle">Simple, defendible y rápida · sin backend · exporta PDF/Excel</div>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="segmented" role="group" aria-label="Modo">
+          <button id="btnMode10" class="seg-btn active" type="button">Modo 10 min</button>
+          <button id="btnModeFull" class="seg-btn" type="button">Modo completa</button>
+        </div>
+
+        <button id="btnClear" class="btn ghost" type="button" title="Borrar todo">Borrar</button>
+        <button id="btnExportPdf" class="btn" type="button">Exportar PDF</button>
+        <button id="btnExportXlsx" class="btn" type="button">Exportar Excel</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="grid">
+      <aside class="card sticky">
+        <div class="card-h">
+          <h2>Panel rápido</h2>
+          <span class="pill" id="pillMode">10 min</span>
+        </div>
+
+        <div class="kv">
+          <div class="k">Paciente</div>
+          <div class="v" id="pvPaciente">—</div>
+
+          <div class="k">Motivo</div>
+          <div class="v" id="pvMotivo">—</div>
+
+          <div class="k">Clasificación sugerida</div>
+          <div class="v">
+            <div class="big" id="pvClasif">—</div>
+            <div class="hint" id="pvClasifHint">Completa síntomas para sugerencia automática.</div>
+          </div>
+
+          <div class="k">Seguridad</div>
+          <div class="v" id="pvSeguridad">
+            <span class="badge ok" id="badgeSafety">Sin red flags marcadas</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="mini-actions">
+          <button id="btnSaveJson" class="btn ghost" type="button">Descargar JSON</button>
+          <button id="btnPrint" class="btn ghost" type="button">Imprimir</button>
+        </div>
+
+        <p class="note">
+          Guardado automático en tu navegador (local). Nada se envía a internet.
+        </p>
+      </aside>
+
+      <section class="stack">
+        <!-- IDENTIFICACIÓN -->
+        <section class="card">
+          <div class="card-h">
+            <h2>1) Identificación</h2>
+            <span class="pill subtle">Obligatorio</span>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Nombre completo</label>
+              <input data-field="id.nombre" type="text" placeholder="Nombre Apellido" />
+            </div>
+            <div class="field">
+              <label>RUT / ID</label>
+              <input data-field="id.rut" type="text" placeholder="12.345.678-9" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Fecha</label>
+              <input data-field="id.fecha" type="date" />
+            </div>
+            <div class="field">
+              <label>Edad</label>
+              <input data-field="id.edad" type="number" min="0" placeholder="—" />
+            </div>
+            <div class="field">
+              <label>Teléfono</label>
+              <input data-field="id.telefono" type="tel" placeholder="+56…" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Correo</label>
+              <input data-field="id.correo" type="email" placeholder="correo@…" />
+            </div>
+            <div class="field">
+              <label>Ocupación / deporte</label>
+              <input data-field="id.ocupacion" type="text" placeholder="Trabajo / deporte / nivel" />
+            </div>
+          </div>
+        </section>
+
+        <!-- MOTIVO / OBJETIVO (tu lenguaje, abierto) -->
+        <section class="card">
+          <div class="card-h">
+            <h2>2) Motivo y objetivo</h2>
+            <span class="pill subtle">Obligatorio</span>
+          </div>
+
+          <div class="field">
+            <label>Motivo principal (en palabras de la paciente)</label>
+            <textarea data-field="motivo.principal" rows="3" placeholder="Cuéntame qué te trae hoy…"></textarea>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Meta principal (1–2 frases)</label>
+              <textarea data-field="motivo.meta" rows="2" placeholder="¿Qué te gustaría lograr con el tratamiento?"></textarea>
+            </div>
+            <div class="field">
+              <label>Historia breve / contexto (libre)</label>
+              <textarea data-field="motivo.historia" rows="2" placeholder="Inicio, evolución, factores que cambian el síntoma…"></textarea>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>NRS síntoma principal (0–10)</label>
+              <input data-field="medicion.nrs_principal" type="number" min="0" max="10" placeholder="0–10" />
+            </div>
+            <div class="field">
+              <label>PSFS (actividad 1) 0–10</label>
+              <input data-field="medicion.psfs1" type="text" placeholder="Actividad + puntaje (ej: correr 2/10)" />
+            </div>
+          </div>
+
+          <div class="mode-full only-full">
+            <div class="row">
+              <div class="field">
+                <label>PSFS (actividad 2) 0–10</label>
+                <input data-field="medicion.psfs2" type="text" placeholder="Actividad + puntaje" />
+              </div>
+              <div class="field">
+                <label>PSFS (actividad 3) 0–10</label>
+                <input data-field="medicion.psfs3" type="text" placeholder="Actividad + puntaje" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SEGURIDAD / RED FLAGS -->
+        <section class="card">
+          <div class="card-h">
+            <h2>3) Seguridad / derivación</h2>
+            <span class="pill danger">P0</span>
+          </div>
+
+          <p class="hint">
+            Si marcas algo relevante aquí: <b>detener, coordinar, derivar</b> según criterio clínico.
+          </p>
+
+          <div class="checks">
+            <label class="check"><input data-field="seguridad.fiebre" type="checkbox"> Fiebre/escalofríos + dolor pélvico o urinario</label>
+            <label class="check"><input data-field="seguridad.hematuria" type="checkbox"> Hematuria visible</label>
+            <label class="check"><input data-field="seguridad.retencion" type="checkbox"> Retención / incapacidad para orinar / dolor suprapúbico severo</label>
+            <label class="check"><input data-field="seguridad.sangrado_anormal" type="checkbox"> Sangrado genital anormal importante / postmenopáusico</label>
+            <label class="check"><input data-field="seguridad.dolor_agudo_severo" type="checkbox"> Dolor pélvico agudo severo “nuevo”</label>
+            <label class="check"><input data-field="seguridad.neuro" type="checkbox"> Síntomas neurológicos nuevos (anestesia silla de montar / debilidad progresiva / cambios esfínteres no explicados)</label>
+            <label class="check"><input data-field="seguridad.sospecha_dvt" type="checkbox"> Sospecha TVP/TEP (no usar Homans; derivación según clínica)</label>
+          </div>
+
+          <div class="mode-full only-full">
+            <div class="field">
+              <label>Notas / acción tomada (si aplica)</label>
+              <textarea data-field="seguridad.accion" rows="2" placeholder="Qué hiciste hoy: derivación, signos, recomendaciones…"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <!-- SALUD FEMENINA (embarazo/postparto) -->
+        <section class="card">
+          <div class="card-h">
+            <h2>4) Salud femenina (mínimo)</h2>
+            <span class="pill subtle">Obligatorio</span>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Embarazo actual</label>
+              <select data-field="sf.embarazo">
+                <option value="">—</option>
+                <option value="no">No</option>
+                <option value="si">Sí</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Trimestre / semanas</label>
+              <input data-field="sf.semanas" type="text" placeholder="1º/2º/3º o semanas" />
+            </div>
+            <div class="field">
+              <label>Postparto</label>
+              <select data-field="sf.postparto">
+                <option value="">—</option>
+                <option value="no">No</option>
+                <option value="si">Sí</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Semanas postparto</label>
+              <input data-field="sf.semanas_pp" type="text" placeholder="Ej: 10 semanas" />
+            </div>
+            <div class="field">
+              <label>Lactancia</label>
+              <select data-field="sf.lactancia">
+                <option value="">—</option>
+                <option value="no">No</option>
+                <option value="si">Sí</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Cirugía pélvica previa</label>
+              <input data-field="sf.cirugia" type="text" placeholder="No / Sí: cuál y cuándo" />
+            </div>
+          </div>
+
+          <div class="mode-full only-full">
+            <div class="row">
+              <div class="field">
+                <label>Menopausia</label>
+                <select data-field="sf.menopausia">
+                  <option value="">—</option>
+                  <option value="no">No</option>
+                  <option value="si">Sí</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Anticoncepción / hormonas (si relevante)</label>
+                <input data-field="sf.hormonas" type="text" placeholder="Opcional" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SCREEN POR DOMINIOS -->
+        <section class="card">
+          <div class="card-h">
+            <h2>5) Screen por dominios (piso pélvico)</h2>
+            <span class="pill subtle">Obligatorio</span>
+          </div>
+
+          <div class="subcard">
+            <h3>Urinario</h3>
+            <div class="checks">
+              <label class="check"><input data-field="dom.urinario.sui" type="checkbox"> Escape con esfuerzo (toser/saltar/correr)</label>
+              <label class="check"><input data-field="dom.urinario.urgencia" type="checkbox"> Urgencia con o sin escape</label>
+              <label class="check"><input data-field="dom.urinario.frecuencia" type="checkbox"> Frecuencia alta / nicturia</label>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>Episodios/semana</label>
+                <input data-field="dom.urinario.episodios" type="text" placeholder="Ej: 3/sem" />
+              </div>
+              <div class="field">
+                <label>Peor gatillo</label>
+                <input data-field="dom.urinario.gatillo" type="text" placeholder="Ej: trote / saltos / risa" />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Intestinal</h3>
+            <div class="checks">
+              <label class="check"><input data-field="dom.intestinal.estrenimiento" type="checkbox"> Estreñimiento / pujo excesivo</label>
+              <label class="check"><input data-field="dom.intestinal.fi" type="checkbox"> Escape gases/heces</label>
+              <label class="check"><input data-field="dom.intestinal.dolor_defecacion" type="checkbox"> Dolor en defecación</label>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>Bristol (1–7)</label>
+                <input data-field="dom.intestinal.bristol" type="text" placeholder="—" />
+              </div>
+              <div class="field">
+                <label>Episodios/semana</label>
+                <input data-field="dom.intestinal.episodios" type="text" placeholder="—" />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Prolapso</h3>
+            <div class="checks">
+              <label class="check"><input data-field="dom.pop.bulto" type="checkbox"> Sensación de bulto / peso / “algo cae”</label>
+              <label class="check"><input data-field="dom.pop.empeora_fin_dia" type="checkbox"> Empeora fin del día / con esfuerzo</label>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>Molestia (0–10)</label>
+                <input data-field="dom.pop.nrs" type="number" min="0" max="10" placeholder="0–10" />
+              </div>
+              <div class="field">
+                <label>Gatillo principal</label>
+                <input data-field="dom.pop.gatillo" type="text" placeholder="Ej: estar de pie / cargar" />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Dolor pélvico / vulvar</h3>
+            <div class="checks">
+              <label class="check"><input data-field="dom.dolor.pelvico" type="checkbox"> Dolor pélvico</label>
+              <label class="check"><input data-field="dom.dolor.vulvar" type="checkbox"> Dolor vulvar/vestibular</label>
+              <label class="check"><input data-field="dom.dolor.coxis" type="checkbox"> Coccigodinia</label>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>NRS dolor (reposo / actividad)</label>
+                <input data-field="dom.dolor.nrs" type="text" placeholder="Ej: 2/10 reposo, 6/10 al esfuerzo" />
+              </div>
+              <div class="field">
+                <label>Descripción (abierta)</label>
+                <input data-field="dom.dolor.desc" type="text" placeholder="Dónde, cómo, qué lo cambia…" />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Sexual (con opción de no responder)</h3>
+            <div class="row">
+              <div class="field">
+                <label>¿Cómoda hablando de esto hoy?</label>
+                <select data-field="dom.sexual.comoda">
+                  <option value="">—</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No (posponer)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Dolor en coito (0–10)</label>
+                <input data-field="dom.sexual.nrs" type="number" min="0" max="10" placeholder="0–10" />
+              </div>
+            </div>
+            <div class="checks">
+              <label class="check"><input data-field="dom.sexual.superficial" type="checkbox"> Dispareunia superficial</label>
+              <label class="check"><input data-field="dom.sexual.profunda" type="checkbox"> Dispareunia profunda</label>
+            </div>
+          </div>
+        </section>
+
+        <!-- MSK SCREEN -->
+        <section class="card">
+          <div class="card-h">
+            <h2>6) Screen MSK (si aplica)</h2>
+            <span class="pill subtle">Rápido</span>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Zona principal</label>
+              <select data-field="msk.zona">
+                <option value="">—</option>
+                <option value="lumbopelvico">Lumbopélvico</option>
+                <option value="cadera">Cadera</option>
+                <option value="pgp">Cintura pélvica (PGP)</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Movimiento provocativo 1 (dolor 0–10)</label>
+              <input data-field="msk.prov1" type="text" placeholder="Ej: flexión lumbar 5/10" />
+            </div>
+            <div class="field">
+              <label>Movimiento provocativo 2 (dolor 0–10)</label>
+              <input data-field="msk.prov2" type="text" placeholder="Ej: puente 4/10" />
+            </div>
+          </div>
+
+          <div class="mode-full only-full">
+            <div class="row">
+              <div class="field">
+                <label>Respiración / presión</label>
+                <input data-field="msk.presion" type="text" placeholder="Ej: breath-holding / Valsalva frecuente / apical" />
+              </div>
+              <div class="field">
+                <label>Notas</label>
+                <input data-field="msk.notas" type="text" placeholder="—" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- EXAMEN PF -->
+        <section class="card">
+          <div class="card-h">
+            <h2>7) Examen piso pélvico (si aplica)</h2>
+            <span class="pill danger">Consentimiento</span>
+          </div>
+
+          <div class="subcard">
+            <h3>Consentimiento / STOP</h3>
+            <div class="checks">
+              <label class="check"><input data-field="ex.consent_explicado" type="checkbox"> Expliqué objetivo, alternativas, derecho a parar</label>
+              <label class="check"><input data-field="ex.chaperon_ofrecido" type="checkbox"> Ofrecí chaperón</label>
+              <label class="check"><input data-field="ex.chaperon_aceptado" type="checkbox"> Chaperón aceptado</label>
+              <label class="check"><input data-field="ex.chaperon_declinado" type="checkbox"> Chaperón declinado</label>
+            </div>
+
+            <div class="row">
+              <div class="field">
+                <label>Examen interno hoy</label>
+                <select data-field="ex.interno">
+                  <option value="">—</option>
+                  <option value="no">No</option>
+                  <option value="vaginal">Sí (vaginal)</option>
+                  <option value="rectal">Sí (rectal)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Contraindicaciones / razones para no hacerlo (si aplica)</label>
+                <input data-field="ex.contra" type="text" placeholder="Dolor, sangrado, ansiedad, etc." />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Examen externo (rápido)</h3>
+            <div class="row">
+              <div class="field">
+                <label>Tejidos / cicatriz</label>
+                <input data-field="ex.externo.tejidos" type="text" placeholder="Normal / sensible / adherencias…" />
+              </div>
+              <div class="field">
+                <label>Contracción/relajación visible</label>
+                <input data-field="ex.externo.visible" type="text" placeholder="Sí/No + coordinación" />
+              </div>
+            </div>
+          </div>
+
+          <div class="subcard">
+            <h3>Examen interno (si aplica)</h3>
+            <div class="row">
+              <div class="field">
+                <label>PERFECT (P / E / R / F)</label>
+                <input data-field="ex.interno.perfect" type="text" placeholder="Ej: P2 / E4s / R4 / F6" />
+              </div>
+              <div class="field">
+                <label>Tono</label>
+                <select data-field="ex.interno.tono">
+                  <option value="">—</option>
+                  <option value="hipo">Hipotonía</option>
+                  <option value="normo">Normotonía</option>
+                  <option value="hiper">Hipertonía</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Dolor (0–10) y mapa</label>
+                <input data-field="ex.interno.dolor" type="text" placeholder="Ej: 6/10 levator izq" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CLASIFICACIÓN / IMPRESIÓN / PLAN -->
+        <section class="card">
+          <div class="card-h">
+            <h2>8) Clasificación, impresión y plan</h2>
+            <span class="pill subtle">Obligatorio</span>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Clasificación final (tu juicio)</label>
+              <select data-field="plan.clasificacion_manual">
+                <option value="">(dejar vacío si usarás solo sugerida)</option>
+                <option value="SUI">SUI (esfuerzo)</option>
+                <option value="OAB">OAB/urgencia</option>
+                <option value="Mixta">Mixta</option>
+                <option value="POP">Prolapso sintomático</option>
+                <option value="Dolor">Dolor pélvico / hipertonía</option>
+                <option value="PGP">PGP (embarazo/postparto)</option>
+                <option value="FI">Incontinencia fecal</option>
+                <option value="Estrenimiento">Estreñimiento / disinergia</option>
+                <option value="Dispareunia">Dispareunia</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Hipótesis modificables (máx 3)</label>
+              <input data-field="plan.hipotesis" type="text" placeholder="Ej: control presión + fuerza + coordinación" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label>Plan 2–4 semanas (con tu lenguaje)</label>
+              <textarea data-field="plan.plan_2_4" rows="3" placeholder="Educación, ejercicios, frecuencia, progresión…"></textarea>
+            </div>
+            <div class="field">
+              <label>Tareas hogar / seguimiento</label>
+              <textarea data-field="plan.tareas" rows="3" placeholder="Qué hará, cuántos días, señales para ajustar…"></textarea>
+            </div>
+          </div>
+
+          <div class="mode-full only-full">
+            <div class="row">
+              <div class="field">
+                <label>Re-test (cuándo)</label>
+                <input data-field="plan.retest" type="text" placeholder="Ej: 4 semanas o 4–6 sesiones" />
+              </div>
+              <div class="field">
+                <label>Outcome elegido (PROM)</label>
+                <select data-field="plan.prom">
+                  <option value="">—</option>
+                  <option value="ICIQ-UI SF">ICIQ-UI SF</option>
+                  <option value="PFDI-20">PFDI-20</option>
+                  <option value="PGQ">PGQ</option>
+                  <option value="Wexner/Vaizey">Wexner/Vaizey</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <footer class="footer">
+          <div class="muted">
+            Hecho para GitHub Pages · Sin backend · Exporta PDF/Excel · Tu ficha, pero más operativa
+          </div>
+        </footer>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
