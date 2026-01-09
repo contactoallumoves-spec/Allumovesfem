@@ -1,4 +1,13 @@
-const STORAGE_KEY = "pf_ficha_v2";
+/* v3 – Boutique PF intake
+   - replica secciones de tu Excel (Ficha Evaluacion + anexos)
+   - modo 10 min vs completa realmente distintos
+   - sliders (0–10) para que el gráfico tenga sentido
+   - gráfico “perfil de síntomas” + anillo de completitud (se exportan al PDF)
+   - export: PDF clínico bonito + PDF paciente útil + Excel en pestañas
+   - guardado local (localStorage)
+*/
+
+const STORAGE_KEY = "pf_ficha_v3";
 let MODE = "10"; // "10" | "full"
 
 const $ = (s) => document.querySelector(s);
@@ -31,15 +40,57 @@ function sanitizeFilePart(s){
     .replace(/_+/g,"_")
     .slice(0,60) || "paciente";
 }
-
 function fileBaseName(st){
   const name = sanitizeFilePart(st?.id?.nombre);
   const date = st?.id?.fecha || nowISODate();
   return `Ficha_PisoPelvico_${name}_${date}`;
 }
 
-/* ---------- ESQUEMA (replica tu Excel original, pero ordenado) ---------- */
-/* Regla: no te cambio el lenguaje: etiquetas = textos de tu ficha */
+function el(tag, attrs={}, children=[]){
+  const n = document.createElement(tag);
+  Object.entries(attrs).forEach(([k,v])=>{
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v);
+  });
+  children.forEach(ch=>{
+    if (typeof ch === "string") n.appendChild(document.createTextNode(ch));
+    else if (ch) n.appendChild(ch);
+  });
+  return n;
+}
+
+function shouldShow(mode){
+  if (MODE === "full") return true;
+  return mode !== "full";
+}
+
+/* =======================
+   Secciones (replica Excel)
+   ======================= */
+
+const ANEXO_CUESTIONARIOS = [
+  { cat:"Calidad de vida / salud mental / dolor", items:["PHQ-2 (depresión/ansiedad)","TAMPA (TSK)","PCS","FABQ","Örebro","SF-36","OSWESTRY","WOMAC","LEFS","DN4","Starbacktool","SANE (Single assessment numerical evaluation)"]},
+  { cat:"Urinario", items:["ICIQ-SF (ICIQ-UI SF)","KING’S Q","Severidad de Sandvik","Urogenital Distress Inventory (UDI)","Cuestionarios de síntomas vesicales y urinarios en general","Cartilla miccional"]},
+  { cat:"Prolapso", items:["P-QOL","PFDI (Pelvic Floor Disability/Distress)","Síntomas de Prolapso"]},
+  { cat:"Intestinal", items:["Incontinencia de Wexner / Vaizey","FIQoL (Incontinencia anal)","Síntomas Intestinales","Cuestionarios de síntomas intestinales y urinarios"]},
+  { cat:"Sexualidad / relación", items:["Índice de la Función Sexual Femenina (FSFI)","Female Sexual Function Index (FSFI)","Changes in Sexual Functioning Questionnaire (CSFQ)","PISQ-12","Sexual Desire Inventory (SDI)","Golombok Rust Inventory of Sexual Satisfaction (GRISS)","Derogatis Sexual Function Inventory (DSFI)","Marital Attitude Survey (MAS)","Inventory of Specific Relationship Standards (ISRS)"]},
+  { cat:"Notas de tu hoja", items:[
+    "“Le voy a pedir que identifique 3 actividades importantes que actualmente le cuesta por su problema…”",
+    "“En una escala de 0 a 100% (siendo 100% lo normal o lo mejor posible) ¿cómo está tu … hoy?”",
+    "Hojas de trabajo/Registros escritos de cogniciones, emociones y conductas (si aplica).",
+    "Test de Homans (NO recomendado como cribado TVP; usar criterio clínico/derivar)."
+  ]},
+];
+
+const ANEXO_TESTS = [
+  { cat:"Columna lumbar", items:["Prueba elevación pierna recta (SLR)/Lasègue","Prueba de inestabilidad en decúbito prono (segmental)","→ cluster Rehorst (estabilidad segmentaria)"]},
+  { cat:"Articulación sacro ilíaca", items:["Cluster van der Wurff","Cluster de Laslett (+): Distracción, Empuje del muslo, Compresión, FABER","ASLR (si lo usas)","FABER (Patrick)","→ Conjunto Laslett"]},
+  { cat:"Cadera", items:["FADDIR (patología intraarticular)","FADER (GTPS/tendinopatía glútea)","Trendelenburg (OA de cadera)"]},
+  { cat:"Rodilla", items:["Lachman (LCA)","Cajón anterior","McMurray (menisco)","Clarke (femoropatelar)","Hoffa (almohadilla grasa)"]},
+  { cat:"Balance / rendimiento", items:["SEBT / Y Balance","TUG","Balance unipodal (10 s)","SPPB","Sit to stand"]},
+];
+
 const SECTIONS = [
   {
     id: "identificacion",
@@ -48,19 +99,18 @@ const SECTIONS = [
     badgeKind: "req",
     mode: "min",
     fields: [
-      { type:"text", key:"id.nombre", label:"Nombre:" , mode:"min"},
-      { type:"number", key:"id.edad", label:"Edad:" , mode:"min"},
-      { type:"text", key:"id.rut", label:"Rut:" , mode:"min"},
-      { type:"date", key:"id.fecha", label:"Fecha de ingreso" , mode:"min"},
-      { type:"text", key:"id.prevision", label:"Previsión" , mode:"full"},
-      { type:"text", key:"id.nivel_educacional", label:"Nivel educacional:" , mode:"full"},
-      { type:"text", key:"id.ocupacion", label:"Ocupación:" , mode:"min"},
-      { type:"text", key:"id.habitos_deportes", label:"Deportes" , mode:"full"},
-      { type:"text", key:"id.contacto_emergencia", label:"Contacto / Contacto de emergencia:" , mode:"min"},
-
-      { type:"text", key:"id.medico_tratante", label:"Médico tratante:" , mode:"full"},
-      { type:"text", key:"id.matrona", label:"Matrona" , mode:"full"},
-      { type:"text", key:"id.contacto_medico", label:"Contacto medico tratante" , mode:"full"},
+      { type:"text", key:"id.nombre", label:"Nombre:", mode:"min"},
+      { type:"number", key:"id.edad", label:"Edad:", mode:"min"},
+      { type:"text", key:"id.rut", label:"Rut :", mode:"min"},
+      { type:"date", key:"id.fecha", label:"Fecha de ingreso", mode:"min"},
+      { type:"text", key:"id.medico_tratante", label:"Médico tratante:", mode:"full"},
+      { type:"text", key:"id.matrona", label:"Matrona", mode:"full"},
+      { type:"text", key:"id.contacto_medico", label:"Contacto medico tratante", mode:"full"},
+      { type:"text", key:"id.contacto_emergencia", label:"Contacto / Contacto de emergencia:", mode:"min"},
+      { type:"text", key:"id.nivel_educacional", label:"Nivel educacional:", mode:"full"},
+      { type:"text", key:"id.ocupacion", label:"Ocupación:", mode:"min"},
+      { type:"text", key:"id.deportes", label:"Deportes", mode:"full"},
+      { type:"text", key:"id.prevision", label:"Previsión", mode:"full"},
     ]
   },
 
@@ -69,18 +119,16 @@ const SECTIONS = [
     title: "2) Motivo de consulta",
     badge: "Obligatorio",
     badgeKind: "req",
-    hint: "Mantén tu estilo: parte abierto y después aterriza lo mínimo para seguimiento.",
+    hint: "Parte con pregunta abierta. Después aterriza lo mínimo (0–10 + actividad) para comparar en re-test.",
     mode: "min",
     fields: [
       { type:"textarea", key:"motivo.motivo", label:"Motivo de consulta:", rows:3, mode:"min" },
       { type:"textarea", key:"motivo.meta", label:"Meta (en palabras de la paciente)", rows:2, mode:"min" },
       { type:"textarea", key:"motivo.historia", label:"Historia breve / contexto", rows:2, mode:"min" },
-
-      // sin siglas visibles
-      { type:"number", key:"medicion.escala_0_10", label:"Escala 0–10 del síntoma principal", mode:"min", min:0, max:10 },
-      { type:"text", key:"medicion.actividad_1", label:"Actividad importante 1 + 0–10 (capacidad)", mode:"min", placeholder:"Ej: correr 2/10" },
-      { type:"text", key:"medicion.actividad_2", label:"Actividad importante 2 + 0–10 (capacidad)", mode:"full" },
-      { type:"text", key:"medicion.actividad_3", label:"Actividad importante 3 + 0–10 (capacidad)", mode:"full" },
+      { type:"range", key:"medicion.sintoma_0_10", label:"Escala 0–10 del síntoma principal", mode:"min", min:0, max:10, step:1, showValue:true },
+      { type:"text", key:"medicion.actividad_1", label:"ACTIVIDAD 1: (actividad importante + 0–10)", mode:"min", placeholder:"Ej: correr 2/10" },
+      { type:"text", key:"medicion.actividad_2", label:"ACTIVIDAD 2 :", mode:"full" },
+      { type:"text", key:"medicion.actividad_3", label:"ACTIVIDAD 3 :", mode:"full" },
     ]
   },
 
@@ -89,7 +137,7 @@ const SECTIONS = [
     title: "3) Seguridad / derivación",
     badge: "P0",
     badgeKind: "p0",
-    hint: "Si marcas algo relevante aquí: detener, coordinar, derivar según criterio clínico.",
+    hint: "Si marcas algo relevante: detener, coordinar, derivar según criterio clínico.",
     mode: "min",
     fields: [
       { type:"check", key:"seg.fiebre", label:"Fiebre/escalofríos + dolor pélvico o urinario", mode:"min"},
@@ -99,18 +147,16 @@ const SECTIONS = [
       { type:"check", key:"seg.dolor_agudo", label:"Dolor pélvico agudo severo “nuevo”", mode:"min"},
       { type:"check", key:"seg.neuro", label:"Síntomas neurológicos nuevos (anestesia silla de montar / debilidad progresiva / cambios esfínteres no explicados)", mode:"min"},
       { type:"check", key:"seg.tvp", label:"Sospecha TVP/TEP (no usar Homans; derivación según clínica)", mode:"min"},
-      // embarazo extra, pero en tu lenguaje (y opcional en 10min)
-      { type:"check", key:"seg.emb_sangrado", label:"Embarazo: sangrado, pérdida de líquido o dolor severo (derivar)", mode:"full"},
+      { type:"check", key:"seg.emb_alerta", label:"Embarazo: sangrado/pérdida de líquido/dolor severo (derivar)", mode:"full"},
       { type:"textarea", key:"seg.accion", label:"Notas / acción tomada (si aplica)", rows:2, mode:"full" }
     ]
   },
 
   {
     id: "antecedentes_medicos",
-    title: "4) Antecedentes médicos y medicamentos",
+    title: "4) Antecedentes medicos",
     badge: "Completa",
     badgeKind: "req",
-    hint: "Deja esto como completo cuando quieras profundizar. En 10 min: solo si cambia conducta hoy.",
     mode: "full",
     fields: [
       { type:"check", key:"am.musculoesqueleticos", label:"Musculoesqueleticos", mode:"full"},
@@ -124,10 +170,10 @@ const SECTIONS = [
 
   {
     id: "gineco_obst",
-    title: "5) Antecedentes gineco-obstétricos (embarazo y postparto incluidos)",
+    title: "5) Antecedentes gineco-obstétricos (embarazo y postparto)",
     badge: "Obligatorio",
     badgeKind: "req",
-    hint: "Las embarazadas las ves en cualquier trimestre: por eso está completo y ordenado.",
+    hint: "Como ves embarazadas en cualquier trimestre: esta sección no se “acorta”, se ordena.",
     mode: "min",
     fields: [
       { type:"text", key:"go.menarquia", label:"Menarquia (edad de la primera menstruación)", mode:"full" },
@@ -187,9 +233,11 @@ const SECTIONS = [
     title:"8) Disfunción del piso pélvico (screen)",
     badge:"Obligatorio",
     badgeKind:"req",
-    hint:"Marca lo que aplica. En 10 min, con esto ya puedes clasificar y decidir el foco.",
+    hint:"Marca lo que aplica. Si quieres que el gráfico sirva, usa los deslizadores (0–10) abajo.",
     mode:"min",
     fields:[
+      { type:"text", key:"pfd.pregunta_abierta", label:"¿Has experimentado alguna de las siguientes situaciones? (si quieres escribirlo)", mode:"full", placeholder:"Opcional" },
+
       { type:"check", key:"pfd.perdida_esfuerzo", label:"Pérdida de orina al toser, estornudar, reír o hacer ejercicio", mode:"min"},
       { type:"check", key:"pfd.urgencia_bano", label:"Necesidad urgente de orinar y dificultad para llegar al baño a tiempo", mode:"min"},
       { type:"check", key:"pfd.perdida_sin_causa", label:"Pérdida de orina sin causa aparente", mode:"min"},
@@ -197,6 +245,15 @@ const SECTIONS = [
       { type:"check", key:"pfd.dolor_relaciones", label:"Dolor durante las relaciones sexuales (dispareunia).", mode:"min"},
       { type:"check", key:"pfd.dolor_pelvico", label:"Dolor en la zona pélvica, vulvar o abdominal baja (dolor pélvico crónico).", mode:"min"},
       { type:"check", key:"pfd.estrenimiento", label:"Estreñimiento", mode:"min"},
+
+      { type:"div", mode:"min" },
+
+      /* Sliders (para gráfico) */
+      { type:"range", key:"perfil.urinario_0_10", label:"Molestia urinaria (0–10)", mode:"min", min:0, max:10, step:1, showValue:true },
+      { type:"range", key:"perfil.intestinal_0_10", label:"Molestia intestinal (0–10)", mode:"min", min:0, max:10, step:1, showValue:true },
+      { type:"range", key:"perfil.dolor_pelvico_0_10", label:"Dolor pélvico/vulvar (0–10)", mode:"min", min:0, max:10, step:1, showValue:true },
+      { type:"range", key:"perfil.dolor_relaciones_0_10", label:"Dolor en relaciones (0–10)", mode:"min", min:0, max:10, step:1, showValue:true },
+      { type:"range", key:"perfil.prolapso_0_10", label:"Molestia por bulto/peso (0–10)", mode:"min", min:0, max:10, step:1, showValue:true },
     ]
   },
 
@@ -207,22 +264,26 @@ const SECTIONS = [
     badgeKind:"req",
     mode:"min",
     fields:[
-      // llenado
       { type:"text", key:"uri.frecuencia", label:"Frecuencia: ¿Cuántas veces al día orinas?", mode:"min"},
       { type:"text", key:"uri.nicturia", label:"Nicturia: ¿Cuántas veces te levantas en la noche para orinar?", mode:"min"},
       { type:"check", key:"uri.urgencia", label:"Urgencia: ¿Sientes un deseo repentino e incontrolable de orinar?", mode:"min"},
       { type:"text", key:"uri.incontinencia", label:"Incontinencia: ¿Pierdes orina involuntariamente? ¿En qué situaciones?", mode:"min"},
 
-      // vaciado
+      { type:"div", mode:"full" },
+      { type:"text", key:"uri.sintomas_llenado", label:"Síntomas de llenado:", mode:"full"},
       { type:"check", key:"uri.retardo", label:"Retardo miccional: ¿Tienes dificultad para iniciar la micción?", mode:"full"},
       { type:"check", key:"uri.chorro_debil", label:"Chorro débil/intermitente: ¿El chorro de orina es débil o se interrumpe?", mode:"full"},
       { type:"check", key:"uri.pujo_orinar", label:"Esfuerzo miccional: ¿Necesitas pujar para orinar?", mode:"full"},
       { type:"check", key:"uri.disuria", label:"Disuria: ¿Sientes dolor o ardor al orinar?", mode:"full"},
       { type:"check", key:"uri.retencion", label:"Retención urinaria: ¿Sientes que no vacías completamente la vejiga?", mode:"full"},
 
-      // postmiccionales + sensitivos
+      { type:"div", mode:"full" },
+      { type:"text", key:"uri.sintomas_post", label:"Síntomas postmiccionales:", mode:"full"},
       { type:"check", key:"uri.post_incompleto", label:"¿Sientes que no has vaciado completamente la vejiga después de orinar?", mode:"full"},
       { type:"check", key:"uri.goteo", label:"¿Tienes goteo de orina después de orinar?", mode:"full"},
+
+      { type:"div", mode:"full" },
+      { type:"text", key:"uri.sintomas_sensitivos", label:"Síntomas sensitivos:", mode:"full"},
       { type:"check", key:"uri.sensacion_llenado", label:"¿Has notado algún cambio en la sensación de llenado de tu vejiga?", mode:"full"},
       { type:"check", key:"uri.ganas_antes", label:"Ganas de orinar antes de que la vejiga esté realmente llena?", mode:"full"},
       { type:"check", key:"uri.ganas_llena", label:"Ganas de orinar cuando la vejiga está llena?", mode:"full"},
@@ -248,7 +309,7 @@ const SECTIONS = [
 
   {
     id:"sexual",
-    title:"11) Función sexual (con opción de posponer)",
+    title:"11) Función sexual",
     badge:"Completa",
     badgeKind:"req",
     mode:"full",
@@ -258,37 +319,37 @@ const SECTIONS = [
       { type:"check", key:"sex.dispareunia", label:"Dispareunia: ¿Sientes dolor durante las relaciones sexuales? ¿Dónde se localiza el dolor? ¿Es superficial o profundo?", mode:"full"},
       { type:"check", key:"sex.libido", label:"Libido: ¿Has notado cambios en tu deseo sexual? ¿Ha aumentado o disminuido?", mode:"full"},
       { type:"check", key:"sex.anorgasmia", label:"Anorgasmia: ¿Tienes dificultades para llegar al orgasmo? ¿Siempre ha sido así o es algo reciente?", mode:"full"},
-
-      // Marinoff (sin sigla, pero mantengo tu texto)
       { type:"select", key:"sex.marinoff", label:"Escala de Marinoff (si aplica)", mode:"full",
         options:["—","Grado I: disconfort que no impide el coito","Grado II: frecuentemente impide el coito","Grado III: siempre impide el coito"]
       },
-      { type:"textarea", key:"sex.notas", label:"Notas (en tus palabras)", rows:2, mode:"full" },
+      { type:"textarea", key:"sex.notas", label:"Notas", rows:2, mode:"full" },
     ]
   },
 
   {
     id:"examen",
-    title:"12) Examen físico / ginecológico (tu estructura)",
+    title:"12) Examen físico/ Examen físico ginecologico",
     badge:"10 min / Completa",
     badgeKind:"req",
-    hint:"En 10 min: solo observación + patrón respiratorio + 1 hallazgo clave. Completa: todo lo que uses.",
+    hint:"En 10 min: Observación + patrón respiratorio + decisión de examen interno + 1 hallazgo clave.",
     mode:"min",
     fields:[
-      // observación general
       { type:"textarea", key:"ex.obs", label:"Observación", rows:2, mode:"min" },
       { type:"text", key:"ex.marcha", label:"Marcha", mode:"full" },
       { type:"text", key:"ex.postura", label:"Postura en todos los planos", mode:"full" },
       { type:"text", key:"ex.respiracion", label:"Patrón respiratorio", mode:"min" },
 
-      // movimiento
+      { type:"div", mode:"full" },
+      { type:"text", key:"ex.examen_mov", label:"Examen de movimiento", mode:"full" },
+      { type:"text", key:"ex.arts", label:"Examen Fisico  (ARTS)", mode:"full" },
       { type:"text", key:"ex.arom", label:"AROM", mode:"full" },
+      { type:"text", key:"ex.asimetrias", label:"Asimetrías", mode:"full" },
       { type:"text", key:"ex.prom", label:"PROM", mode:"full" },
+      { type:"text", key:"ex.restriccion_mov", label:"Restricción de movimiento", mode:"full" },
       { type:"text", key:"ex.mov_acc", label:"Movimientos accesorios", mode:"full" },
       { type:"text", key:"ex.funcionales", label:"Funcionales", mode:"full" },
       { type:"text", key:"ex.fuerza", label:"Fuerza", mode:"full" },
 
-      // consentimiento examen intracavitario
       { type:"div", mode:"min" },
       { type:"check", key:"cons.explico", label:"Expliqué objetivo, alternativas, derecho a parar", mode:"min"},
       { type:"check", key:"cons.chaperon_ofrecido", label:"Ofrecí chaperón", mode:"min"},
@@ -297,7 +358,7 @@ const SECTIONS = [
       },
       { type:"text", key:"cons.contra", label:"Contraindicaciones / por qué no (si aplica)", mode:"full" },
 
-      // inspección SP (tu contenido)
+      /* Inspección suelo pélvico (tu hoja) */
       { type:"div", mode:"full" },
       { type:"text", key:"sp.cicatrices", label:"Cicatrices", mode:"full" },
       { type:"text", key:"sp.episiotomias", label:"Episiotomias", mode:"full" },
@@ -312,28 +373,41 @@ const SECTIONS = [
       { type:"text", key:"sp.contraccion_perineal", label:"Contracción perineal", mode:"full" },
       { type:"text", key:"sp.relajacion_perineal", label:"Relajación perineal (Escala de relajación de reissin)", mode:"full" },
 
-      // Q-tip (solo si aplica, no lo fuerzo)
       { type:"check", key:"sp.qtip", label:"Q-tip test (si aplica)", mode:"full" },
       { type:"text", key:"sp.qtip_hallazgo", label:"Q-tip: hallazgo (si lo hiciste)", mode:"full" },
 
-      // palpación intracavitaria (PERFECT + dolor/tono)
+      /* PERFECT */
       { type:"div", mode:"full" },
-      { type:"text", key:"int.perfect", label:"Protocolo PERFECT (si aplica)", mode:"full", placeholder:"Ej: fuerza / resistencia / repeticiones / rápidas / elevación" },
-      { type:"select", key:"int.tono", label:"Tono", mode:"full", options:["—","normo","hipo","hiper"] },
+      { type:"text", key:"int.elevador", label:"● elevador del ano:", mode:"full", placeholder:"Opcional" },
+      { type:"text", key:"int.fuerza_contractil", label:"Fuerza contráctil:", mode:"full" },
+      { type:"text", key:"int.power", label:"Power : fuerza ( oxford modificada)", mode:"full" },
+      { type:"text", key:"int.endurance", label:"Endurance: Resistencia (segundos/10)", mode:"full" },
+      { type:"text", key:"int.repetition", label:"Repetition : repeticiones (descanso ≥4s)", mode:"full" },
+      { type:"text", key:"int.timing", label:"Timing de activación:", mode:"full" },
+      { type:"select", key:"int.tono", label:"● Tono: normo -hipo -hiper", mode:"full", options:["—","normo","hipo","hiper"] },
       { type:"text", key:"int.puntos_gatillo", label:"Puntos dolorosos / puntos gatillo", mode:"full" },
       { type:"text", key:"int.score_hipertonia", label:"Score de hipertonía (0–4) (si lo usas)", mode:"full" },
 
-      // POP
+      /* POP */
       { type:"div", mode:"full" },
       { type:"select", key:"pop.estadio", label:"Examen estática pélvica (POP) - estadio (si aplica)", mode:"full",
         options:["—","Estadio 0 (ausente)","Estadio I (>1 cm sobre himen)","Estadio II (1 cm sobre o bajo himen)","Estadio III (> 1 cm)"]
       },
       { type:"text", key:"pop.notas", label:"Notas POP (valsalva / síntomas)", mode:"full" },
 
-      // manometría anorectal (queda como módulo avanzado)
+      /* Anorrectal */
       { type:"div", mode:"full" },
-      { type:"check", key:"manom.usada", label:"Evaluación manometría anorectal (solo si la usaste)", mode:"full" },
-      { type:"textarea", key:"manom.notas", label:"Notas manometría (balón simple/doble, sincronismo, etc.)", rows:2, mode:"full" },
+      { type:"text", key:"rect.sincronismo_abd", label:"Sincronismo abdominales pelviano al empuje : Descenso normal piso pélvico con apertura del ano", mode:"full" },
+      { type:"text", key:"rect.angulo_puborectal", label:"Ángulo puborectal : Reposo 90º -100 º", mode:"full" },
+      { type:"text", key:"rect.movilidad_puborrectal", label:"Movilidad puborrectal:", mode:"full" },
+      { type:"text", key:"rect.tonicidad_puborrectal", label:"Tonicidad puborrectal:", mode:"full" },
+      { type:"text", key:"rect.relajacion_puborrectal", label:"Relajación puborrectal : Escala de rissing", mode:"full" },
+      { type:"text", key:"rect.sincronismo_puborrectal", label:"Sincronismo puborrectal al pujo: Relaja canal anal/empuja dedo/abertura angulo anorrectal", mode:"full" },
+
+      /* Manometría */
+      { type:"div", mode:"full" },
+      { type:"text", key:"manom.balon_simple", label:"-Balon simple : Sensibilidad rectal, Capacidad y acomodación rectal, Sincronismo defecatorio", mode:"full" },
+      { type:"text", key:"manom.balon_doble", label:"-Balón doble: RRAE / presión canal anal / longitud canal anal / RRAI", mode:"full" },
     ]
   },
 
@@ -342,42 +416,102 @@ const SECTIONS = [
     title:"13) Clasificación, hipótesis y plan",
     badge:"Obligatorio",
     badgeKind:"req",
-    hint:"Sin siglas: deja tu juicio escrito en español simple, pero preciso.",
+    hint:"Escribe tu juicio en español simple (sin siglas) + plan claro 2–4 semanas + tareas.",
     mode:"min",
     fields:[
       { type:"text", key:"plan.clasificacion_manual", label:"Clasificación final (tu juicio)", mode:"min",
-        placeholder:"Ej: incontinencia de esfuerzo + control de presión / dolor pélvico miofascial…"
+        placeholder:"Ej: pérdida de orina con esfuerzo + control de presión / dolor pélvico miofascial…"
       },
       { type:"text", key:"plan.hipotesis", label:"Hipótesis modificables (máx 3)", mode:"min" },
       { type:"textarea", key:"plan.plan_2_4", label:"Plan 2–4 semanas (con tu lenguaje)", rows:3, mode:"min" },
       { type:"textarea", key:"plan.tareas", label:"Tareas para la casa / seguimiento", rows:3, mode:"min" },
       { type:"text", key:"plan.retest", label:"Re-test (cuándo)", mode:"full", placeholder:"Ej: 2–4 semanas o 4–6 sesiones" },
       { type:"select", key:"plan.cuestionario", label:"Cuestionario elegido (baseline)", mode:"full",
-        options:["—","ICIQ-UI SF","PFDI-20","PGQ","Wexner/Vaizey","Otro"]
+        options:["—","ICIQ-UI SF","PFDI-20","PGQ","Wexner/Vaizey","FSFI (si sexualidad es foco)","Otro"]
       },
     ]
+  },
+
+  {
+    id:"anexos",
+    title:"14) Anexos (cuestionarios y tests)",
+    badge:"Completa",
+    badgeKind:"req",
+    hint:"Esto no es para llenarlo completo en sesión: es tu biblioteca. Marca lo que usaste.",
+    mode:"full",
+    fields:[
+      { type:"textarea", key:"anexos.cuestionarios_usados", label:"Cuestionarios usados hoy (lista corta)", rows:2, mode:"full", placeholder:"Ej: ICIQ-UI SF + PFDI-20" },
+      { type:"textarea", key:"anexos.tests_usados", label:"Tests ortopédicos/rendimiento usados hoy (lista corta)", rows:2, mode:"full" },
+      { type:"textarea", key:"anexos.notas", label:"Notas", rows:2, mode:"full" },
+    ],
+    customRender: (card, st) => {
+      // render biblioteca con checkboxes (sin guardar cada item como key individual, para no explotar el JSON)
+      const lib = el("div",{class:"div"},[]);
+      card.appendChild(lib);
+
+      const block = el("div",{class:"grid2"},[]);
+      block.appendChild(renderLibrary("Biblioteca de cuestionarios (referencia)", ANEXO_CUESTIONARIOS));
+      block.appendChild(renderLibrary("Biblioteca de tests (referencia)", ANEXO_TESTS));
+      card.appendChild(block);
+    }
+  },
+
+  {
+    id:"evidencia",
+    title:"15) Notas rápidas basadas en evidencia (para tu respaldo)",
+    badge:"Referencia",
+    badgeKind:"req",
+    mode:"full",
+    fields:[
+      { type:"textarea", key:"evidencia.notas", label:"Notas (si quieres dejar algo escrito para auditoría)", rows:2, mode:"full",
+        placeholder:"Ej: PFMT supervisado ≥3 meses primera línea en pérdidas de orina al esfuerzo/mixta; guía NICE."
+      }
+    ],
+    customRender: (card) => {
+      const p = el("div",{class:"hint"},[
+        "Sugerencias (no sustituyen tu criterio):",
+        "\n• Pérdida de orina al esfuerzo/mixta: entrenamiento supervisado de musculatura del piso pélvico como primera línea (NICE).",
+        "\n• PFD: evaluación y manejo por síntomas (urinario, intestinal, prolapso, dolor) según guías NICE.",
+        "\n• Medición: ICIQ-UI SF (urinario), PFDI-20 (síntomas PF globales), PGQ (dolor cintura pélvica), Wexner/Vaizey (incontinencia fecal), FSFI (sexualidad si es foco)."
+      ]);
+      p.style.whiteSpace = "pre-wrap";
+      p.style.marginTop = "8px";
+      card.appendChild(p);
+
+      const links = el("div", {style:"margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;"}, [
+        anchor("NICE NG210 (PFD)", "https://www.nice.org.uk/guidance/ng210"),
+        anchor("NICE QS77 (PFMT 1ª línea)", "https://www.nice.org.uk/guidance/qs77/chapter/quality-statement-4-supervised-pelvic-floor-muscle-training"),
+        anchor("ICIQ-UI SF", "https://iciq.net/iciq-ui-sf"),
+      ]);
+      card.appendChild(links);
+    }
   }
 ];
 
-/* ---------- Render ---------- */
-function shouldShow(mode){
-  if (MODE === "full") return true;
-  return mode !== "full";
+function anchor(label, href){
+  const a = el("a",{href, target:"_blank", rel:"noopener noreferrer", style:"font-weight:900; color:#7a3b2a; text-decoration:underline;"},[label]);
+  return a;
 }
 
-function el(tag, attrs={}, children=[]){
-  const n = document.createElement(tag);
-  Object.entries(attrs).forEach(([k,v])=>{
-    if (k === "class") n.className = v;
-    else if (k.startsWith("on") && typeof v === "function") n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v);
+function renderLibrary(title, groups){
+  const box = el("div",{class:"field"},[
+    el("label",{},[title]),
+  ]);
+  const wrap = el("div",{style:"display:grid; gap:10px; margin-top:8px;"},[]);
+  groups.forEach(g=>{
+    const head = el("div",{style:"font-weight:900; color:#5f6777; font-size:12px;"},[g.cat]);
+    wrap.appendChild(head);
+    g.items.forEach(item=>{
+      wrap.appendChild(el("div",{style:"font-weight:800; font-size:12px; background:rgba(243,231,207,.35); border:1px solid rgba(30,35,45,.08); padding:8px 10px; border-radius:14px;"},[item]));
+    });
   });
-  children.forEach(ch=>{
-    if (typeof ch === "string") n.appendChild(document.createTextNode(ch));
-    else if (ch) n.appendChild(ch);
-  });
-  return n;
+  box.appendChild(wrap);
+  return box;
 }
+
+/* =======================
+   Render + state
+   ======================= */
 
 function renderForm(){
   const root = $("#formRoot");
@@ -396,8 +530,8 @@ function renderForm(){
     ]);
     card.appendChild(h);
 
-    // layout simple: 2 columnas cuando es cómodo
     const grid = el("div", { class:"grid2" }, []);
+    let hasGrid = false;
 
     sec.fields.forEach(f=>{
       if (!shouldShow(f.mode || sec.mode)) return;
@@ -413,6 +547,31 @@ function renderForm(){
           el("span",{},[f.label])
         ]);
         card.appendChild(row);
+        return;
+      }
+
+      if (f.type === "range"){
+        const field = el("div",{class:"field"},[]);
+        const lbl = el("label",{},[
+          el("span",{},[f.label]),
+          f.showValue ? el("span",{class:"small", "data-range-for": f.key},["0"]) : null
+        ]);
+        field.appendChild(lbl);
+
+        const wrap = el("div",{class:"range-wrap"},[]);
+        const input = el("input",{
+          type:"range",
+          "data-key": f.key,
+          min: String(f.min ?? 0),
+          max: String(f.max ?? 10),
+          step: String(f.step ?? 1),
+          value: "0"
+        },[]);
+        wrap.appendChild(input);
+        field.appendChild(wrap);
+
+        grid.appendChild(field);
+        hasGrid = true;
         return;
       }
 
@@ -444,10 +603,15 @@ function renderForm(){
 
       field.appendChild(input);
       grid.appendChild(field);
+      hasGrid = true;
     });
 
-    // si hay muchos checks, ya están fuera del grid. Si el grid queda vacío, no lo agregues.
-    if (grid.childNodes.length) card.appendChild(grid);
+    if (hasGrid) card.appendChild(grid);
+
+    if (typeof sec.customRender === "function"){
+      sec.customRender(card, getState(false));
+    }
+
     root.appendChild(card);
   });
 
@@ -456,9 +620,8 @@ function renderForm(){
   saveAndRefresh();
 }
 
-/* ---------- State ---------- */
-function getState(){
-  const st = { _meta:{mode:MODE, updatedAt:new Date().toISOString()} };
+function getState(includeMeta=true){
+  const st = includeMeta ? { _meta:{mode:MODE, updatedAt:new Date().toISOString()} } : {};
   $$("[data-key]").forEach(node=>{
     const k = node.getAttribute("data-key");
     let v = "";
@@ -478,6 +641,13 @@ function applyState(st){
     if (node.type === "checkbox") node.checked = !!v;
     else node.value = v;
   });
+
+  // update range labels
+  $$("[data-range-for]").forEach(b=>{
+    const key = b.getAttribute("data-range-for");
+    const v = deepGet(st, key);
+    b.textContent = (v === undefined || v === null || v === "") ? "0" : String(v);
+  });
 }
 
 function loadState(){
@@ -495,90 +665,256 @@ function clearAll(){
   renderForm();
 }
 
-/* ---------- Automático: seguridad / etapa / clasificación / cuestionario sugerido ---------- */
+/* =======================
+   Automático (sin siglas)
+   ======================= */
+
 function safetyFlag(st){
   const s = st?.seg || {};
-  const keys = ["fiebre","hematuria","retencion","sangrado","dolor_agudo","neuro","tvp","emb_sangrado"];
+  const keys = ["fiebre","hematuria","retencion","sangrado","dolor_agudo","neuro","tvp","emb_alerta"];
   return keys.some(k=> !!s[k]);
 }
 
-function etapa(st){
-  // usando tu lenguaje del bloque GO + lo mínimo
-  const fpp = st?.go?.fecha_probable_parto || "";
-  const pp = st?.go?.partos || "";
-  const ces = st?.go?.cesareas || "";
-  const peso = st?.go?.peso_rn || "";
-
-  const signals = [];
-  if (fpp) signals.push(`FPP: ${fpp}`);
-  if (peso) signals.push(`RN: ${peso}`);
-  if (pp || ces) signals.push(`Partos/Cesáreas: ${[pp,ces].filter(Boolean).join("/")}`);
-  return signals.length ? signals.join(" · ") : "—";
+function etapaStr(st){
+  const parts = [];
+  if (st?.go?.fecha_probable_parto) parts.push(`FPP: ${st.go.fecha_probable_parto}`);
+  if (st?.go?.peso_rn) parts.push(`RN: ${st.go.peso_rn}`);
+  const pc = [st?.go?.partos, st?.go?.cesareas].filter(Boolean).join("/");
+  if (pc) parts.push(`Partos/Cesáreas: ${pc}`);
+  return parts.length ? parts.join(" · ") : "—";
 }
 
 function suggestedClassification(st){
-  // sin siglas, en español
+  if (safetyFlag(st)) return "Prioridad: seguridad/derivación";
+
+  const effort = !!st?.pfd?.perdida_esfuerzo;
+  const urgency = !!st?.pfd?.urgencia_bano || !!st?.uri?.urgencia;
+  const fi = !!st?.pfd?.perdida_gases_heces;
+  const constip = !!st?.pfd?.estrenimiento;
+  const dysp = !!st?.pfd?.dolor_relaciones;
+  const pelvicPain = !!st?.pfd?.dolor_pelvico;
+  const pop = !!st?.pop?.estadio;
+
+  // 1–2 etiquetas máximo
   const tags = [];
+  if (effort && urgency) tags.push("Pérdidas de orina: esfuerzo + urgencia (mixta probable)");
+  else if (effort) tags.push("Pérdidas de orina con esfuerzo (probable)");
+  else if (urgency) tags.push("Urgencia para orinar / vejiga hiperactiva (probable)");
 
-  // screen simple
-  if (st?.pfd?.perdida_esfuerzo) tags.push("Pérdida de orina con esfuerzo");
-  if (st?.pfd?.urgencia_bano || st?.uri?.urgencia) tags.push("Urgencia para orinar");
-  if (st?.pfd?.perdida_gases_heces) tags.push("Pérdida de gases/heces");
-  if (st?.pfd?.estrenimiento) tags.push("Estreñimiento");
-  if (st?.pfd?.dolor_relaciones) tags.push("Dolor en relaciones sexuales");
-  if (st?.pfd?.dolor_pelvico) tags.push("Dolor pélvico/vulvar");
-  if (st?.pop?.estadio) tags.push("Sospecha de prolapso (si es sintomático)");
+  if (fi) tags.push("Pérdida de gases/heces (evaluar severidad)");
+  if (pop) tags.push("Síntomas de prolapso (según molestia)");
 
-  // si no hay tags
+  if (dysp) tags.push("Dolor en relaciones (dispareunia)");
+  if (pelvicPain) tags.push("Dolor pélvico/vulvar");
+
+  if (constip) tags.push("Estreñimiento / disfunción defecatoria");
+
   if (!tags.length) return "—";
-
-  // prioriza 1–2
   return tags.slice(0,2).join(" + ") + (tags.length>2 ? " (y otros)" : "");
 }
 
 function suggestedQuestionnaire(st){
-  // recomendación simple, no invasiva
-  // (si quieres cambiar qué recomiendas por defecto, lo ajustamos en 30 segundos)
-  if (st?.pfd?.perdida_esfuerzo || st?.pfd?.urgencia_bano || st?.pfd?.perdida_sin_causa) return "ICIQ-UI SF";
-  if (st?.pfd?.perdida_gases_heces) return "Wexner/Vaizey";
-  if (st?.pop?.estadio) return "PFDI-20";
-  // embarazo/postparto con dolor de cintura pélvica: sugerir PGQ solo si lo estás usando
-  if ((st?.go?.fecha_probable_parto || st?.go?.peso_rn) && (st?.pfd?.dolor_pelvico)) return "PFDI-20 o PGQ (según foco)";
+  if (safetyFlag(st)) return "— (resolver seguridad primero)";
+  const effort = !!st?.pfd?.perdida_esfuerzo;
+  const urgency = !!st?.pfd?.urgencia_bano || !!st?.uri?.urgencia;
+  const fi = !!st?.pfd?.perdida_gases_heces;
+  const pop = !!st?.pop?.estadio;
+
+  const dysp = !!st?.pfd?.dolor_relaciones;
+  const pelvicPain = !!st?.pfd?.dolor_pelvico;
+
+  if (effort || urgency) return "ICIQ-UI SF";
+  if (fi) return "Wexner/Vaizey";
+  if (pop) return "PFDI-20";
+  if (dysp && MODE === "full") return "FSFI (si sexualidad es foco)";
+  if (pelvicPain) return "PFDI-20 (si PF global) o escala dolor 0–10";
   return "—";
 }
 
-function nextStepHint(st){
-  if (safetyFlag(st)) return "Hay red flags marcadas: define acción/derivación antes de avanzar.";
-  if (st?.pfd?.dolor_relaciones && st?.sp?.qtip) return "Si hay dolor vestibular: registra Q-tip y plan de exposición/relajación según tolerancia.";
-  if (st?.pfd?.perdida_esfuerzo) return "Foco inicial: control de presión + entrenamiento específico (progresión).";
-  if (st?.pfd?.urgencia_bano) return "Foco inicial: educación de urgencia + hábitos + control."
-  return "—";
+function checklistText(st){
+  const items = [];
+  if (safetyFlag(st)) items.push("1) Resolver seguridad/derivación");
+  items.push("2) Baseline: 0–10 + actividad");
+  if (MODE === "full") items.push("3) Elegir cuestionario baseline");
+  items.push("4) Plan 2–4 semanas + tareas");
+  return items.join(" · ");
 }
 
-/* ---------- UI updates ---------- */
+/* =======================
+   Completitud + gráficos
+   ======================= */
+
+const REQUIRED_KEYS_10 = [
+  "id.nombre","id.rut","id.fecha",
+  "motivo.motivo",
+  "medicion.sintoma_0_10",
+  "medicion.actividad_1",
+  "go.gestaciones","go.partos","go.cesareas",
+  "plan.plan_2_4","plan.tareas"
+];
+
+const REQUIRED_KEYS_FULL_EXTRA = [
+  "plan.cuestionario","plan.retest"
+];
+
+function completion(st){
+  const base = REQUIRED_KEYS_10.slice();
+  if (MODE === "full") base.push(...REQUIRED_KEYS_FULL_EXTRA);
+
+  let filled = 0;
+  base.forEach(k=>{
+    const v = deepGet(st, k);
+    if (v === undefined || v === null) return;
+    if (typeof v === "boolean") { if (v) filled++; return; }
+    if (String(v).trim() !== "") filled++;
+  });
+
+  const total = base.length;
+  return { filled, total, pct: total ? Math.round((filled/total)*100) : 0 };
+}
+
+function domainScores(st){
+  // si no rellenan sliders, queda 0 (no inventa)
+  const toNum = (x) => {
+    const n = Number(x);
+    return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : 0;
+  };
+
+  return [
+    { name:"Urinario", v: toNum(st?.perfil?.urinario_0_10) },
+    { name:"Intestinal", v: toNum(st?.perfil?.intestinal_0_10) },
+    { name:"Dolor pélvico", v: toNum(st?.perfil?.dolor_pelvico_0_10) },
+    { name:"Relaciones", v: toNum(st?.perfil?.dolor_relaciones_0_10) },
+    { name:"Bulto/peso", v: toNum(st?.perfil?.prolapso_0_10) },
+  ];
+}
+
+function drawDonut(canvas, pct){
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const cx = w/2, cy = h/2;
+  const r = Math.min(w,h)*0.36;
+  ctx.clearRect(0,0,w,h);
+
+  // base ring
+  ctx.lineWidth = 16;
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "rgba(30,35,45,.10)";
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.stroke();
+
+  // progress
+  const start = -Math.PI/2;
+  const end = start + (Math.PI*2)*(pct/100);
+  const grad = ctx.createLinearGradient(cx-r,cy,cx+r,cy);
+  grad.addColorStop(0, "rgba(243,199,197,.95)"); // blush
+  grad.addColorStop(1, "rgba(127,176,155,.95)"); // sage
+  ctx.strokeStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,start,end);
+  ctx.stroke();
+
+  // text
+  ctx.fillStyle = "#2a2f3d";
+  ctx.font = "900 26px Manrope, Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${pct}%`, cx, cy);
+
+  ctx.fillStyle = "rgba(95,103,119,.95)";
+  ctx.font = "800 12px Manrope, Arial";
+  ctx.fillText("completo", cx, cy + 26);
+}
+
+function drawBars(canvas, scores){
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0,0,w,h);
+
+  const pad = 14;
+  const labelW = 110;
+  const barW = w - pad*2 - labelW - 54;
+  const rowH = 26;
+  const top = 10;
+
+  ctx.font = "800 12px Manrope, Arial";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(95,103,119,.95)";
+
+  scores.forEach((s, i)=>{
+    const y = top + i*rowH + 8;
+    ctx.fillText(s.name, pad, y);
+
+    // bar bg
+    const x0 = pad + labelW;
+    ctx.fillStyle = "rgba(30,35,45,.08)";
+    roundRect(ctx, x0, y-7, barW, 14, 7, true, false);
+
+    // bar fg
+    const frac = s.v/10;
+    const fw = Math.max(0, Math.round(barW*frac));
+    const grad = ctx.createLinearGradient(x0,0,x0+barW,0);
+    grad.addColorStop(0, "rgba(243,199,197,.95)");
+    grad.addColorStop(1, "rgba(200,118,90,.85)");
+    ctx.fillStyle = grad;
+    roundRect(ctx, x0, y-7, fw, 14, 7, true, false);
+
+    // value
+    ctx.fillStyle = "#2a2f3d";
+    ctx.font = "900 12px Manrope, Arial";
+    ctx.fillText(String(s.v), x0 + barW + 16, y);
+    ctx.font = "800 12px Manrope, Arial";
+    ctx.fillStyle = "rgba(95,103,119,.95)";
+  });
+}
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke){
+  if (w <= 0) return;
+  const rr = Math.min(r, h/2, w/2);
+  ctx.beginPath();
+  ctx.moveTo(x+rr, y);
+  ctx.arcTo(x+w, y, x+w, y+h, rr);
+  ctx.arcTo(x+w, y+h, x, y+h, rr);
+  ctx.arcTo(x, y+h, x, y, rr);
+  ctx.arcTo(x, y, x+w, y, rr);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
+/* =======================
+   Hero + export
+   ======================= */
+
 function refreshHero(st){
   const name = st?.id?.nombre || "—";
   const rut = st?.id?.rut ? ` · ${st.id.rut}` : "";
   $("#chipPaciente").textContent = `Paciente: ${name}${rut}`;
 
-  const et = etapa(st);
-  $("#chipEtapa").textContent = `Embarazo/postparto: ${et}`;
+  $("#chipEtapa").textContent = `Embarazo/postparto: ${etapaStr(st)}`;
 
-  $("#chipSeguridad").textContent = safetyFlag(st) ? "Seguridad: OJO (marcado)" : "Seguridad: sin alertas";
-  $("#chipSeguridad").style.borderColor = safetyFlag(st) ? "rgba(255,183,209,.85)" : "rgba(30,35,45,.10)";
+  const safe = safetyFlag(st);
+  $("#chipSeguridad").textContent = safe ? "Seguridad: OJO (marcado)" : "Seguridad: sin alertas";
+  $("#chipSeguridad").style.borderColor = safe ? "rgba(243,199,197,.95)" : "rgba(30,35,45,.10)";
 
   const clas = st?.plan?.clasificacion_manual?.trim() ? st.plan.clasificacion_manual.trim() : suggestedClassification(st);
   $("#heroClasif").textContent = `Clasificación sugerida: ${clas || "—"}`;
 
   const q = st?.plan?.cuestionario?.trim() ? st.plan.cuestionario.trim() : suggestedQuestionnaire(st);
-  const ns = nextStepHint(st);
-  $("#heroSug").textContent = `Cuestionario recomendado: ${q} · Siguiente paso: ${ns}`;
+  $("#heroSug").textContent = `Cuestionario recomendado: ${q}`;
 
   $("#miniMotivo").textContent = (st?.motivo?.motivo || "—").toString().slice(0,120) || "—";
   $("#miniPlan").textContent = (st?.plan?.plan_2_4 || "—").toString().slice(0,120) || "—";
+  $("#miniChecklist").textContent = checklistText(st);
+
+  // completion + charts
+  const c = completion(st);
+  drawDonut($("#cvProgress"), c.pct);
+  $("#progressText").textContent = `${c.filled}/${c.total} campos clave`;
+  drawBars($("#cvProfile"), domainScores(st));
 }
 
-/* ---------- Export PDF/Excel ---------- */
 function flatten(st){
   const out = [];
   function walk(obj, pref=""){
@@ -598,8 +934,7 @@ function flatten(st){
   return out;
 }
 
-function sectionPairs(st){
-  // PDF ordenado por bloques (solo llenado)
+function blocksForPDF(st){
   const blocks = [];
 
   blocks.push(["Identificación", [
@@ -615,10 +950,10 @@ function sectionPairs(st){
     ["Motivo de consulta", st?.motivo?.motivo],
     ["Meta", st?.motivo?.meta],
     ["Historia breve", st?.motivo?.historia],
-    ["Escala 0–10 síntoma principal", st?.medicion?.escala_0_10],
-    ["Actividad 1 + 0–10", st?.medicion?.actividad_1],
-    ["Actividad 2 + 0–10", st?.medicion?.actividad_2],
-    ["Actividad 3 + 0–10", st?.medicion?.actividad_3],
+    ["Escala 0–10 síntoma principal", st?.medicion?.sintoma_0_10],
+    ["Actividad 1", st?.medicion?.actividad_1],
+    ["Actividad 2", st?.medicion?.actividad_2],
+    ["Actividad 3", st?.medicion?.actividad_3],
   ]]);
 
   blocks.push(["Seguridad / derivación", [
@@ -629,33 +964,38 @@ function sectionPairs(st){
     ["Dolor agudo severo", st?.seg?.dolor_agudo ? "Sí" : ""],
     ["Síntomas neurológicos", st?.seg?.neuro ? "Sí" : ""],
     ["Sospecha TVP/TEP", st?.seg?.tvp ? "Sí" : ""],
-    ["Embarazo: sangrado/pérdida líquido/dolor severo", st?.seg?.emb_sangrado ? "Sí" : ""],
+    ["Embarazo alerta", st?.seg?.emb_alerta ? "Sí" : ""],
     ["Acción tomada", st?.seg?.accion],
   ]]);
 
-  blocks.push(["Gineco-obstétricos", [
+  blocks.push(["Embarazo / postparto", [
     ["Gestaciones", st?.go?.gestaciones],
     ["Abortos", st?.go?.abortos],
     ["Partos", st?.go?.partos],
     ["Cesáreas", st?.go?.cesareas],
     ["Fecha probable parto", st?.go?.fecha_probable_parto],
     ["Peso RN", st?.go?.peso_rn],
-    ["Peso ganado", st?.go?.peso_ganado],
     ["Suplementos", st?.go?.suplementos],
+    ["Peso ganado", st?.go?.peso_ganado],
     ["Desgarros/Episiotomías", st?.go?.desgarros_epi],
   ]]);
 
-  blocks.push(["Screen piso pélvico", [
+  blocks.push(["Screen piso pélvico + perfil", [
     ["Pérdida orina con esfuerzo", st?.pfd?.perdida_esfuerzo ? "Sí" : ""],
-    ["Urgencia para orinar", st?.pfd?.urgencia_bano ? "Sí" : ""],
-    ["Pérdida orina sin causa", st?.pfd?.perdida_sin_causa ? "Sí" : ""],
+    ["Urgencia", st?.pfd?.urgencia_bano ? "Sí" : ""],
+    ["Pérdida sin causa", st?.pfd?.perdida_sin_causa ? "Sí" : ""],
     ["Pérdida gases/heces", st?.pfd?.perdida_gases_heces ? "Sí" : ""],
-    ["Dolor en relaciones", st?.pfd?.dolor_relaciones ? "Sí" : ""],
-    ["Dolor pélvico", st?.pfd?.dolor_pelvico ? "Sí" : ""],
+    ["Dolor relaciones", st?.pfd?.dolor_relaciones ? "Sí" : ""],
+    ["Dolor pélvico/vulvar", st?.pfd?.dolor_pelvico ? "Sí" : ""],
     ["Estreñimiento", st?.pfd?.estrenimiento ? "Sí" : ""],
+    ["Molestia urinaria (0–10)", st?.perfil?.urinario_0_10],
+    ["Molestia intestinal (0–10)", st?.perfil?.intestinal_0_10],
+    ["Dolor pélvico (0–10)", st?.perfil?.dolor_pelvico_0_10],
+    ["Dolor relaciones (0–10)", st?.perfil?.dolor_relaciones_0_10],
+    ["Bulto/peso (0–10)", st?.perfil?.prolapso_0_10],
   ]]);
 
-  blocks.push(["Urinario / defecatorio / sexual (según lo que llenaste)", [
+  blocks.push(["Urinario / defecatorio / sexual (según llenado)", [
     ["Frecuencia orinar", st?.uri?.frecuencia],
     ["Nicturia", st?.uri?.nicturia],
     ["Urgencia (urinario)", st?.uri?.urgencia ? "Sí" : ""],
@@ -663,27 +1003,24 @@ function sectionPairs(st){
 
     ["Deposiciones (frecuencia)", st?.def?.frecuencia],
     ["Consistencia", st?.def?.consistencia],
+    ["Puja/maniobras", st?.def?.pujo_maniobras ? "Sí" : ""],
 
     ["Relaciones sexuales (frecuencia)", st?.sex?.frecuencia],
     ["Vaginismo", st?.sex?.vaginismo ? "Sí" : ""],
-    ["Dispareunia (detalle)", st?.sex?.dispareunia ? "Sí" : ""],
+    ["Dispareunia", st?.sex?.dispareunia ? "Sí" : ""],
     ["Marinoff", st?.sex?.marinoff],
   ]]);
 
-  blocks.push(["Examen y plan", [
-    ["Observación", st?.ex?.obs],
-    ["Patrón respiratorio", st?.ex?.respiracion],
-    ["Consentimiento explicado", st?.cons?.explico ? "Sí" : ""],
-    ["Chaperón ofrecido", st?.cons?.chaperon_ofrecido ? "Sí" : ""],
-    ["Examen intracavitario hoy", st?.cons?.interno],
-    ["PERFECT (si aplica)", st?.int?.perfect],
-    ["Tono", st?.int?.tono],
-    ["Clasificación final (tu juicio)", st?.plan?.clasificacion_manual || suggestedClassification(st)],
+  const clas = st?.plan?.clasificacion_manual?.trim() ? st.plan.clasificacion_manual.trim() : suggestedClassification(st);
+  const q = st?.plan?.cuestionario?.trim() ? st.plan.cuestionario.trim() : suggestedQuestionnaire(st);
+
+  blocks.push(["Plan", [
+    ["Clasificación (hoy)", clas],
     ["Hipótesis", st?.plan?.hipotesis],
     ["Plan 2–4 semanas", st?.plan?.plan_2_4],
     ["Tareas", st?.plan?.tareas],
     ["Re-test", st?.plan?.retest],
-    ["Cuestionario baseline", st?.plan?.cuestionario || suggestedQuestionnaire(st)],
+    ["Cuestionario baseline", q],
   ]]);
 
   // filtra vacíos
@@ -699,10 +1036,10 @@ function exportPdfClin(){
   const doc = new jsPDF({unit:"pt", format:"a4"});
   const margin = 44;
 
-  // header pastel
-  doc.setFillColor(243,231,207); // sand
+  // Header boutique
+  doc.setFillColor(243,231,207); // beige
   doc.rect(0,0,595,92,"F");
-  doc.setFillColor(184,166,255); // lav accent strip
+  doc.setFillColor(243,199,197); // blush line
   doc.rect(0,92,595,4,"F");
 
   doc.setFont("helvetica","bold");
@@ -723,9 +1060,16 @@ function exportPdfClin(){
   doc.setFont("helvetica","normal");
   doc.text(`Cuestionario recomendado: ${q}`, margin, 134);
 
-  let y = 156;
+  // Inserta gráfico perfil
+  const profile = $("#cvProfile");
+  try{
+    const img = profile.toDataURL("image/png", 1.0);
+    doc.addImage(img, "PNG", margin, 150, 507, 120);
+  }catch(e){}
 
-  const blocks = sectionPairs(st);
+  let y = 286;
+
+  const blocks = blocksForPDF(st);
   blocks.forEach(([title, rows])=>{
     doc.setFont("helvetica","bold");
     doc.setFontSize(11);
@@ -737,7 +1081,8 @@ function exportPdfClin(){
       head: [["Campo", "Valor"]],
       body: rows.map(([a,b])=>[String(a), String(b)]),
       styles: { fontSize: 9, cellPadding: 6 },
-      headStyles: { fillColor: [184,166,255] },
+      headStyles: { fillColor: [243,231,207], textColor:[42,47,61] },
+      alternateRowStyles: { fillColor: [255,255,255] },
       margin: { left: margin, right: margin }
     });
     y = doc.lastAutoTable.finalY + 16;
@@ -757,9 +1102,9 @@ function exportPdfPaciente(){
   const doc = new jsPDF({unit:"pt", format:"a4"});
   const margin = 44;
 
-  doc.setFillColor(255,183,209); // rose
+  doc.setFillColor(243,199,197); // blush
   doc.rect(0,0,595,78,"F");
-  doc.setFillColor(168,230,208); // mint strip
+  doc.setFillColor(127,176,155); // sage strip
   doc.rect(0,78,595,4,"F");
 
   doc.setFont("helvetica","bold");
@@ -770,22 +1115,37 @@ function exportPdfPaciente(){
   doc.setFontSize(10);
   doc.text(`Nombre: ${st?.id?.nombre || "—"} · Fecha: ${st?.id?.fecha || "—"}`, margin, 66);
 
+  const clas = st?.plan?.clasificacion_manual?.trim() ? st.plan.clasificacion_manual.trim() : suggestedClassification(st);
+
+  // mini perfil (gráfico)
+  const profile = $("#cvProfile");
+  try{
+    const img = profile.toDataURL("image/png", 1.0);
+    doc.addImage(img, "PNG", margin, 96, 507, 110);
+  }catch(e){}
+
   const motivo = st?.motivo?.motivo || "";
   const meta = st?.motivo?.meta || "";
   const plan = st?.plan?.plan_2_4 || "";
   const tareas = st?.plan?.tareas || "";
+  const retest = st?.plan?.retest || (MODE==="full" ? "Re-evaluación en 2–4 semanas o 4–6 sesiones." : "Re-evaluación en 2–4 semanas.");
+  const q = st?.plan?.cuestionario?.trim() ? st.plan.cuestionario.trim() : suggestedQuestionnaire(st);
+
   const alertas = "Consulta/deriva si aparece: fiebre + dolor pélvico/urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo, síntomas neurológicos nuevos.";
 
   const rows = [
+    ["Lo que estamos trabajando (hoy)", clas || ""],
     ["Motivo (en tus palabras)", motivo],
     ["Meta", meta],
     ["Plan 2–4 semanas", plan],
-    ["Tareas", tareas],
+    ["Tareas para la casa", tareas],
+    ["Cuestionario de seguimiento", q],
+    ["Cuándo re-evaluamos", retest],
     ["Señales de alerta", alertas],
   ].filter(([,v])=> String(v||"").trim() !== "");
 
   doc.autoTable({
-    startY: 110,
+    startY: 220,
     head: [["", ""]],
     body: rows,
     styles: { fontSize: 10, cellPadding: 8 },
@@ -793,8 +1153,8 @@ function exportPdfPaciente(){
     theme: "grid",
     margin: { left: margin, right: margin },
     columnStyles: {
-      0: { cellWidth: 170, fontStyle:"bold" },
-      1: { cellWidth: 595 - margin*2 - 170 }
+      0: { cellWidth: 190, fontStyle:"bold" },
+      1: { cellWidth: 595 - margin*2 - 190 }
     }
   });
 
@@ -803,69 +1163,83 @@ function exportPdfPaciente(){
 
 function exportXlsx(){
   const st = getState();
-
   const wb = XLSX.utils.book_new();
 
-  const sheet1 = [
+  const wsId = XLSX.utils.aoa_to_sheet([
     ["Identificación"],
     ["Nombre", st?.id?.nombre || ""],
     ["Edad", st?.id?.edad || ""],
     ["Rut", st?.id?.rut || ""],
     ["Fecha", st?.id?.fecha || ""],
-    ["Ocupación", st?.id?.ocupacion || ""],
+    ["Médico tratante", st?.id?.medico_tratante || ""],
+    ["Matrona", st?.id?.matrona || ""],
+    ["Contacto médico", st?.id?.contacto_medico || ""],
     ["Contacto emergencia", st?.id?.contacto_emergencia || ""],
-  ];
-  const ws1 = XLSX.utils.aoa_to_sheet(sheet1);
-  XLSX.utils.book_append_sheet(wb, ws1, "Identificación");
+    ["Nivel educacional", st?.id?.nivel_educacional || ""],
+    ["Ocupación", st?.id?.ocupacion || ""],
+    ["Deportes", st?.id?.deportes || ""],
+    ["Previsión", st?.id?.prevision || ""],
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsId, "Identificación");
 
-  const sheet2 = [
+  const wsMot = XLSX.utils.aoa_to_sheet([
     ["Motivo"],
     ["Motivo de consulta", st?.motivo?.motivo || ""],
     ["Meta", st?.motivo?.meta || ""],
     ["Historia breve", st?.motivo?.historia || ""],
-    ["Escala 0–10 síntoma principal", st?.medicion?.escala_0_10 || ""],
-    ["Actividad 1 + 0–10", st?.medicion?.actividad_1 || ""],
-    ["Actividad 2 + 0–10", st?.medicion?.actividad_2 || ""],
-    ["Actividad 3 + 0–10", st?.medicion?.actividad_3 || ""],
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheet2), "Motivo");
+    ["Escala 0–10 síntoma principal", st?.medicion?.sintoma_0_10 || ""],
+    ["Actividad 1", st?.medicion?.actividad_1 || ""],
+    ["Actividad 2", st?.medicion?.actividad_2 || ""],
+    ["Actividad 3", st?.medicion?.actividad_3 || ""],
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsMot, "Motivo");
 
-  const sheet3 = [
-    ["Gineco-obstétricos"],
+  const wsGO = XLSX.utils.aoa_to_sheet([
+    ["Embarazo/Postparto"],
     ["Gestaciones", st?.go?.gestaciones || ""],
     ["Abortos", st?.go?.abortos || ""],
     ["Partos", st?.go?.partos || ""],
     ["Cesáreas", st?.go?.cesareas || ""],
+    ["Uso forceps", st?.go?.uso_forceps || ""],
     ["Fecha probable parto", st?.go?.fecha_probable_parto || ""],
     ["Peso RN", st?.go?.peso_rn || ""],
     ["Suplementos", st?.go?.suplementos || ""],
     ["Peso ganado", st?.go?.peso_ganado || ""],
     ["Desgarros/Episiotomías", st?.go?.desgarros_epi || ""],
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheet3), "Embarazo_Postparto");
+    ["Métodos anticonceptivos", st?.go?.anticonceptivos || ""],
+    ["Otras observaciones", st?.go?.otras_obs || ""],
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsGO, "Embarazo_Postparto");
 
-  const sheet4 = [
-    ["Síntomas (screen)"],
+  const wsSint = XLSX.utils.aoa_to_sheet([
+    ["Síntomas"],
     ["Pérdida orina con esfuerzo", st?.pfd?.perdida_esfuerzo ? "Sí" : ""],
     ["Urgencia para orinar", st?.pfd?.urgencia_bano ? "Sí" : ""],
     ["Pérdida orina sin causa", st?.pfd?.perdida_sin_causa ? "Sí" : ""],
     ["Pérdida gases/heces", st?.pfd?.perdida_gases_heces ? "Sí" : ""],
     ["Dolor en relaciones", st?.pfd?.dolor_relaciones ? "Sí" : ""],
-    ["Dolor pélvico", st?.pfd?.dolor_pelvico ? "Sí" : ""],
+    ["Dolor pélvico/vulvar", st?.pfd?.dolor_pelvico ? "Sí" : ""],
     ["Estreñimiento", st?.pfd?.estrenimiento ? "Sí" : ""],
     [],
-    ["Urinario"],
-    ["Frecuencia orinar", st?.uri?.frecuencia || ""],
+    ["Perfil (0–10)"],
+    ["Urinario", st?.perfil?.urinario_0_10 || ""],
+    ["Intestinal", st?.perfil?.intestinal_0_10 || ""],
+    ["Dolor pélvico", st?.perfil?.dolor_pelvico_0_10 || ""],
+    ["Relaciones", st?.perfil?.dolor_relaciones_0_10 || ""],
+    ["Bulto/peso", st?.perfil?.prolapso_0_10 || ""],
+    [],
+    ["Urinario (mínimo)"],
+    ["Frecuencia", st?.uri?.frecuencia || ""],
     ["Nicturia", st?.uri?.nicturia || ""],
-    ["Urgencia (urinario)", st?.uri?.urgencia ? "Sí" : ""],
+    ["Urgencia", st?.uri?.urgencia ? "Sí" : ""],
     ["Incontinencia (situaciones)", st?.uri?.incontinencia || ""],
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheet4), "Síntomas");
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsSint, "Síntomas");
 
-  const clas = st?.plan?.clasificacion_manual || suggestedClassification(st);
-  const q = st?.plan?.cuestionario || suggestedQuestionnaire(st);
+  const clas = st?.plan?.clasificacion_manual?.trim() ? st.plan.clasificacion_manual.trim() : suggestedClassification(st);
+  const q = st?.plan?.cuestionario?.trim() ? st.plan.cuestionario.trim() : suggestedQuestionnaire(st);
 
-  const sheet5 = [
+  const wsPlan = XLSX.utils.aoa_to_sheet([
     ["Plan"],
     ["Clasificación", clas || ""],
     ["Hipótesis", st?.plan?.hipotesis || ""],
@@ -873,10 +1247,10 @@ function exportXlsx(){
     ["Tareas", st?.plan?.tareas || ""],
     ["Re-test", st?.plan?.retest || ""],
     ["Cuestionario baseline", q || ""],
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sheet5), "Plan");
+  ]);
+  XLSX.utils.book_append_sheet(wb, wsPlan, "Plan");
 
-  // pestaña “Completa” (key/value) por si quieres auditoría
+  // Auditoría key/value
   const pairs = flatten(st).map(([k,v])=>({Campo:k, Valor:v}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pairs), "Completa_keyvalue");
 
@@ -893,10 +1267,21 @@ function exportJSON(){
   URL.revokeObjectURL(a.href);
 }
 
-/* ---------- bind / mode ---------- */
+/* =======================
+   Bind / init
+   ======================= */
+
 function bindInputs(){
   $$("[data-key]").forEach(node=>{
-    node.addEventListener("input", saveAndRefresh);
+    node.addEventListener("input", () => {
+      // update range badge
+      if (node.type === "range"){
+        const key = node.getAttribute("data-key");
+        const badge = document.querySelector(`[data-range-for="${key}"]`);
+        if (badge) badge.textContent = String(node.value);
+      }
+      saveAndRefresh();
+    });
     node.addEventListener("change", saveAndRefresh);
   });
 }
@@ -904,7 +1289,6 @@ function bindInputs(){
 function applyLoadedState(){
   const st = loadState();
   if (!st) {
-    // defaults
     const dateInput = $$("[data-key='id.fecha']")[0];
     if (dateInput && !dateInput.value) dateInput.value = nowISODate();
     return;
@@ -928,7 +1312,6 @@ function setMode(mode, rerender=true){
   else saveAndRefresh();
 }
 
-/* ---------- init ---------- */
 function init(){
   $("#btnMode10").addEventListener("click", ()=>setMode("10"));
   $("#btnModeFull").addEventListener("click", ()=>setMode("full"));
@@ -943,6 +1326,15 @@ function init(){
   });
 
   renderForm();
+}
+
+function loadState(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+function saveState(st){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 }
 
 init();
