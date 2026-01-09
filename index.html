@@ -61,6 +61,20 @@
 
           <div class="hero-big" id="heroClasif">Clasificación sugerida: —</div>
           <div class="hero-small" id="heroSug">Cuestionario recomendado: —</div>
+
+          <div class="hero-viz">
+            <div class="viz-card">
+              <div class="viz-title">Completitud</div>
+              <canvas id="cvProgress" width="160" height="160"></canvas>
+              <div class="viz-note" id="progressText">—</div>
+            </div>
+
+            <div class="viz-card wide">
+              <div class="viz-title">Perfil de síntomas (0–10)</div>
+              <canvas id="cvProfile" width="420" height="160"></canvas>
+              <div class="viz-note">Tip: usa los deslizadores para que el gráfico se vea útil (y se exporte).</div>
+            </div>
+          </div>
         </div>
 
         <div class="hero-right">
@@ -71,6 +85,11 @@
           <div class="mini">
             <div class="mini-l">Plan 2–4 semanas (1 idea)</div>
             <div class="mini-v" id="miniPlan">—</div>
+          </div>
+
+          <div class="mini">
+            <div class="mini-l">Checklist de sesión</div>
+            <div class="mini-v" id="miniChecklist">—</div>
           </div>
         </div>
       </div>
