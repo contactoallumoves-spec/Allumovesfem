@@ -563,3 +563,65 @@ input[type="checkbox"]{
   color: var(--ink);
   max-width: 360px;
 }
+
+/* =========================
+   FIX: Checkboxes raros (líneas/“conectores”)
+   ========================= */
+label.check{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  padding:10px 12px;
+  margin-top:10px;
+  border:1px solid rgba(16,32,36,.12);
+  border-radius:16px;
+  background:rgba(255,255,255,.62);
+  box-shadow: 0 10px 26px rgba(16,32,36,.06);
+}
+
+label.check input[type="checkbox"]{
+  margin-top:2px;
+  width:18px;
+  height:18px;
+  accent-color: var(--terra);
+}
+
+/* mata cualquier pseudo estilo raro del navegador */
+label.check::before,
+label.check::after{
+  content:none !important;
+  display:none !important;
+}
+
+/* texto del checkbox */
+label.check span{
+  font-weight:650;
+  color: var(--ink);
+  line-height:1.25;
+}
+
+/* =========================
+   Avatar + logo mini (para la mini card “Profesional” y header)
+   ========================= */
+.brandLogo{
+  width:30px;
+  height:30px;
+  object-fit:contain;
+  display:block;
+}
+
+.avatar{
+  width:46px;
+  height:46px;
+  border-radius:999px;
+  object-fit:cover;
+  border:2px solid rgba(217,203,179,.70);
+}
+
+.proRow{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-bottom:8px;
+}
+
