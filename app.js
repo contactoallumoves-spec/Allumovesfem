@@ -881,38 +881,50 @@ function drawBars(canvas, scores){
 function refreshHeroUI(st){
   const extras = window.__extras || ExtrasDefault();
 
+  const setText = (sel, txt) => {
+    const n = $(sel);
+    if (n) n.textContent = txt;
+  };
+
   const name = st?.id?.nombre || "—";
   const rut = st?.id?.rut ? ` · ${st.id.rut}` : "";
-  $("#chipUsuaria").textContent = `Usuaria: ${name}${rut}`;
+  setText("#chipUsuaria", `Usuaria: ${name}${rut}`);
 
-  const etapa = etapaStr(st);
-  $("#chipEtapa").textContent = `Embarazo/postparto: ${etapa}`;
+  setText("#chipEtapa", `Embarazo/postparto: ${etapaStr(st)}`);
 
   const safe = safetyFlag(st);
-  $("#chipSeguridad").textContent = safe ? "Seguridad: OJO (marcado)" : "Seguridad: sin alertas";
+  setText("#chipSeguridad", safe ? "Seguridad: OJO (marcado)" : "Seguridad: sin alertas");
 
-  $("#chipMsk").textContent = extras.settings.musculoEsqOn ? "Músculo-esquelético: ON" : "Músculo-esquelético: OFF";
+  setText("#chipMsk", extras.settings.musculoEsqOn ? "Músculo-esquelético: ON" : "Músculo-esquelético: OFF");
 
-  $("#heroClasif").textContent = `Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)}`;
-  $("#heroSug").textContent   = `Cuestionario recomendado: ${(st?.plan?.cuestionario || "").trim() || suggestedQuestionnaire(st)}`;
+  const clasifManual = (st?.plan?.clasificacion || st?.plan?.clasificacion_manual || "").trim();
+  const clasif = clasifManual || suggestedClassification(st);
 
-  $("#miniMotivo").textContent = (st?.motivo?.motivo || "—").toString().slice(0,120) || "—";
-  $("#miniPlan").textContent   = (st?.plan?.plan_2_4 || "—").toString().slice(0,120) || "—";
-  $("#miniOculto").textContent = modeHiddenLine();
+  const questManual = (st?.plan?.cuestionario || st?.plan?.cuestionario_elegido || "").trim();
+  const quest = questManual || suggestedQuestionnaire(st);
+
+  const activeHyps = (extras.hypotheses || []).filter(h => h.active);
+  const top2 = activeHyps.slice(0,2).map(h => h.title).filter(Boolean).join(" · ");
+
+  setText(
+    "#heroClasif",
+    `Clasificación sugerida: ${clasif} · Hipótesis activas: ${activeHyps.length}${top2 ? " ("+top2+")" : ""}`
+  );
+  setText("#heroSug", `Cuestionario recomendado: ${quest}`);
+
+  setText("#miniMotivo", (st?.motivo?.motivo || "—").toString().slice(0,120) || "—");
+  setText("#miniPlan", (st?.plan?.plan_2_4 || "—").toString().slice(0,120) || "—");
+  setText("#miniOculto", modeHiddenLine());
 
   const c = completion(st);
-  drawDonut($("#cvProgress"), c.pct);
-  $("#progressText").textContent = `${c.filled}/${c.total} campos clave`;
+  const cv = $("#cvProgress");
+  if (cv) drawDonut(cv, c.pct);
+  setText("#progressText", `${c.filled}/${c.total} campos clave`);
 
-   // Hipótesis activas (resumen corto)
-const extras = window.__extras || ExtrasDefault();
-const activeHyps = (extras.hypotheses||[]).filter(h=>h.active);
-const top2 = activeHyps.slice(0,2).map(h=>h.title).join(" · ");
-$("#heroClasif").textContent = `Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)} · Hipótesis activas: ${activeHyps.length}${top2 ? " ("+top2+")" : ""}`;
-
-
-  drawBars($("#cvProfile"), domainScores(st));
+  const bars = $("#cvProfile");
+  if (bars) drawBars(bars, domainScores(st));
 }
+
 
 function saveAndRefresh(extras){
   const st = getBaseState(true);
