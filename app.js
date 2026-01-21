@@ -682,8 +682,23 @@ function clearAll(){
    ======================= */
 
 function modeHiddenLine(){
-  if (MODE === "full") return "Nada oculto: secciones avanzadas visibles.";
-  return "Modo 10 min: se omiten secciones avanzadas; se prioriza triage + baseline + plan rápido.";
+  const extras = window.__extras || ExtrasDefault();
+
+  if (MODE === "full"){
+    return "Nada oculto: vista completa activada.";
+  }
+
+  const hidden = [];
+  hidden.push("Campos avanzados (detalles extra y re-evaluación).");
+  hidden.push("Biblioteca completa de ejercicios (usa “Mostrar más ejercicios”).");
+
+  if (!extras.settings.musculoEsqOn){
+    hidden.push("Módulo músculo-esquelético: OFF.");
+  } else {
+    hidden.push("Detalles avanzados del módulo músculo-esquelético se revisan mejor en modo completo.");
+  }
+
+  return "Oculto en 10 min: " + hidden.join(" ");
 }
 
 function setMode(mode, rerender=true){
@@ -753,16 +768,28 @@ function completion(st){
 
 /* Perfil (0–10) se alimenta desde módulo 8 (por síntoma) */
 function domainScores(st){
+  // Calcula directo desde Módulo 8 (en vivo) → SIEMPRE se actualiza y exporta
   const toNum = (x) => {
     const n = Number(x);
     return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : 0;
   };
+
+  const urin = Math.max(
+    toNum(st?.m8?.urinario_esfuerzo_0_10),
+    toNum(st?.m8?.urinario_urgencia_0_10),
+    toNum(st?.m8?.urinario_sin_causa_0_10)
+  );
+  const intestinal = Math.max(
+    toNum(st?.m8?.perdida_heces_gases_0_10),
+    toNum(st?.m8?.estrenimiento_0_10)
+  );
+
   return [
-    { name:"Urinario", v: toNum(st?.perfil?.urinario_0_10) },
-    { name:"Intestinal", v: toNum(st?.perfil?.intestinal_0_10) },
-    { name:"Dolor pélvico", v: toNum(st?.perfil?.dolor_pelvico_0_10) },
-    { name:"Relaciones", v: toNum(st?.perfil?.dolor_relaciones_0_10) },
-    { name:"Bulto/peso", v: toNum(st?.perfil?.prolapso_0_10) },
+    { name:"Urinario", v: urin },
+    { name:"Intestinal", v: intestinal },
+    { name:"Dolor pélvico", v: toNum(st?.m8?.dolor_pelvico_0_10) },
+    { name:"Relaciones", v: toNum(st?.m8?.dolor_relaciones_0_10) },
+    { name:"Bulto/peso", v: toNum(st?.m8?.bulto_peso_0_10) },
   ];
 }
 
@@ -876,6 +903,13 @@ function refreshHeroUI(st){
   const c = completion(st);
   drawDonut($("#cvProgress"), c.pct);
   $("#progressText").textContent = `${c.filled}/${c.total} campos clave`;
+
+   // Hipótesis activas (resumen corto)
+const extras = window.__extras || ExtrasDefault();
+const activeHyps = (extras.hypotheses||[]).filter(h=>h.active);
+const top2 = activeHyps.slice(0,2).map(h=>h.title).join(" · ");
+$("#heroClasif").textContent = `Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)} · Hipótesis activas: ${activeHyps.length}${top2 ? " ("+top2+")" : ""}`;
+
 
   drawBars($("#cvProfile"), domainScores(st));
 }
@@ -1077,76 +1111,133 @@ function renderModule8(card){
   const wrap = el("div", { "data-module8":"true" }, []);
 
   M8_ITEMS.forEach(item=>{
-    wrap.appendChild(renderSymptomRow(item, "m8"));
+    wrap.appendChild(renderSymptomRow(item));
   });
 
+  // Bloque ICIQ dentro del módulo 8 si hay síntomas urinarios (requisito)
+  const iciqBlock = el("div",{class:"symRow", id:"m8IciqBlock"},[
+    el("div",{class:"symHead"},[
+      el("div",{class:"symLeft"},[
+        el("input",{type:"checkbox","data-key":"out.iciq_aplicar"}),
+        el("div",{class:"symLabel"},["ICIQ-UI SF (0–21) · (si aplica)"])
+      ]),
+      el("div",{class:"symRight"},[
+        el("span",{class:"tag"},["Escala validada"]),
+        (()=> {
+          const a = document.createElement("a");
+          a.href = "https://iciq.net/iciq-ui-sf";
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = "Abrir cuestionario";
+          a.style.color = "var(--terra)";
+          a.style.fontWeight = "800";
+          a.style.textDecoration = "underline";
+          return a;
+        })()
+      ])
+    ]),
+    el("div",{class:"symExtras", id:"m8IciqExtras"},[
+      el("div",{class:"symGrid"},[
+        el("div",{class:"rangeCompact"},[
+          el("div",{class:"rangeTop"},[
+            el("div",{},["Puntaje ICIQ-UI SF"]),
+            el("div",{class:"rangeValue", id:"iciqBadge"},["—"])
+          ]),
+          el("input",{type:"number","data-key":"out.iciq_score", min:"0", max:"21", placeholder:"0–21", style:"margin-top:10px; width:100%; padding:10px; border-radius:14px; border:1px solid rgba(16,32,36,.18); background:rgba(255,255,255,.70); font-weight:700;"})
+        ]),
+        el("div",{class:"field"},[
+          el("label",{},["Situaciones / contexto (opcional)"]),
+          el("textarea",{rows:"2","data-key":"out.iciq_contexto", placeholder:"Ej: al saltar, al toser, al llegar a casa, etc."},[])
+        ])
+      ])
+    ])
+  ]);
+
+  wrap.appendChild(iciqBlock);
+
   // Botones rápidos
-  const btns = el("div",{style:"margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;"},[
+  wrap.appendChild(el("div",{style:"margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;"},[
     el("button",{class:"smallBtn primary", type:"button", onclick:()=>module8ToMotor()},["Añadir hipótesis y tareas"]),
     el("button",{class:"smallBtn", type:"button", onclick:()=>clearModule8()},["Vaciar sección"]),
-  ]);
-  wrap.appendChild(btns);
+  ]));
 
   card.appendChild(wrap);
-
-  // Al render, aplica visibilidad según estado cargado
   setTimeout(()=>updateModule8Visibility(), 0);
 }
 
 function renderSymptomRow(item){
   const row = el("div",{class:"symRow", "data-sym-row": item.key},[]);
-  const head = el("div",{class:"symHead"},[]);
-  const left = el("div",{class:"symLeft"},[
-    el("input",{type:"checkbox","data-key":item.key, "data-sym-toggle":"true"}),
-    el("span",{},[item.label])
+
+  // icono info solo donde abruma (intestinal)
+  const hasInfo = (item.key === "m8.perdida_heces_gases" || item.key === "m8.estrenimiento");
+
+  const infoBtn = hasInfo
+    ? el("button",{class:"infoBtn", type:"button", onclick:()=>toggleInfo(item.key)},["i"])
+    : null;
+
+  const tags = [];
+  tags.push(el("span",{class:"tag"},["0–10"]));
+  if (item.extra && item.extra.type === "marinoff") tags.push(el("span",{class:"tag"},["Marinoff 0–3"]));
+
+  const head = el("div",{class:"symHead"},[
+    el("div",{class:"symLeft"},[
+      el("input",{type:"checkbox","data-key":item.key, "data-sym-toggle":"true"}),
+      el("div",{class:"symLabel"},[item.label])
+    ]),
+    el("div",{class:"symRight"},[
+      ...tags,
+      infoBtn
+    ].filter(Boolean))
   ]);
-  head.appendChild(left);
+
   row.appendChild(head);
+
+  if (hasInfo){
+    row.appendChild(el("div",{class:"infoPop hidden", "data-info-for": item.key},[
+      "Guía breve: frecuencia, urgencia, tipo de heces (Bristol opcional), dolor, maniobras, gatillantes."
+    ]));
+  }
 
   const extras = el("div",{class:"symExtras hidden", "data-sym-extras-for": item.key},[]);
 
-  // 0–10 + interpretación
-  const rangeBox = el("div",{class:"rangeBox"},[
+  const range = el("div",{class:"rangeCompact"},[
     el("div",{class:"rangeTop"},[
       el("div",{},[item.severityLabel]),
       el("div",{class:"rangeValue", "data-range-value": item.severityKey},["0 · 0"])
     ]),
-    el("input",{
-      type:"range",
-      min:"0", max:"10", step:"1",
-      value:"0",
-      "data-key": item.severityKey,
-      "data-range": "true"
-    })
+    el("input",{type:"range", min:"0", max:"10", step:"1", value:"0", "data-key": item.severityKey})
   ]);
-  extras.appendChild(rangeBox);
 
-  // Detalles específicos
-  extras.appendChild(
-    el("div",{class:"field"},[
-      el("label",{},["Describe (específico)"]),
-      el("textarea",{
-        rows:"2",
-        "data-key": item.detailsKey,
-        placeholder: item.detailsPlaceholder
-      },[])
-    ])
-  );
+  const details = el("div",{class:"field"},[
+    el("label",{},["Describe (específico)"]),
+    el("textarea",{"data-key": item.detailsKey, rows:"2", placeholder:item.detailsPlaceholder},[])
+  ]);
 
-  // Extras según síntoma (Marinoff / guía intestinal)
+  const grid = el("div",{class:"symGrid"},[range, details]);
+
+  extras.appendChild(grid);
+
   if (item.extra && item.extra.type === "marinoff"){
-    extras.appendChild(renderMarinoffBlock());
-  }
-  if (item.key === "m8.perdida_heces_gases" || item.key === "m8.estrenimiento"){
-    extras.appendChild(
-      el("div",{class:"symHint"},[
-        "Guía rápida: frecuencia, urgencia, tipo de heces (Bristol opcional), dolor, maniobras, gatillantes."
+    extras.appendChild(el("div",{class:"field"},[
+      el("label",{},["Escala de dispareunia de Marinoff (0–3)"]),
+      el("select",{"data-key":"m8.marinoff"},[
+        el("option",{value:""},["—"]),
+        el("option",{value:"0"},["0: sin dolor"]),
+        el("option",{value:"1"},["1: disconfort, no impide"]),
+        el("option",{value:"2"},["2: a veces interrumpe"]),
+        el("option",{value:"3"},["3: impide siempre"]),
       ])
-    );
+    ]));
   }
 
   row.appendChild(extras);
   return row;
+}
+
+function toggleInfo(key){
+  const pop = document.querySelector(`[data-info-for="${key}"]`);
+  if (!pop) return;
+  pop.classList.toggle("hidden");
 }
 
 function renderMarinoffBlock(){
@@ -1171,28 +1262,31 @@ function renderMarinoffBlock(){
 function updateModule8Visibility(){
   const st = getMergedState();
 
+  // muestra extras solo si se activa la casilla
   M8_ITEMS.forEach(item=>{
     const on = !!deepGet(st, item.key);
     const extras = document.querySelector(`[data-sym-extras-for="${item.key}"]`);
     if (extras) extras.classList.toggle("hidden", !on);
 
-    // range label (valor + interpretación)
-    const val = Number(deepGet(st, item.severityKey) || 0);
+    const v = Number(deepGet(st, item.severityKey) || 0);
     const badge = document.querySelector(`[data-range-value="${item.severityKey}"]`);
-    if (badge) badge.textContent = `${val} · ${levelFrom010(val)}`;
-
-    // perfil: toma el máximo entre urinario items etc.
+    if (badge) badge.textContent = `${v} · ${levelFrom010(v)}`;
   });
 
-  // Marinoff label
-  const m = deepGet(st, "m8.marinoff");
-  const lab = $("[data-marinoff-label]");
-  if (lab){
-    const map = { "0":"0 (sin dolor)", "1":"1 (no impide)", "2":"2 (a veces interrumpe)", "3":"3 (impide)" };
-    lab.textContent = m ? map[m] : "—";
-  }
+  // ICIQ block visible solo si hay urinario marcado
+  const urinOn = !!st?.m8?.urinario_esfuerzo || !!st?.m8?.urinario_urgencia || !!st?.m8?.urinario_sin_causa;
+  const iciqBlock = $("#m8IciqBlock");
+  if (iciqBlock) iciqBlock.classList.toggle("hidden", !urinOn);
 
-  updateProfileFromModule8();
+  const iciqExtras = $("#m8IciqExtras");
+  const iciqOn = !!st?.out?.iciq_aplicar;
+  if (iciqExtras) iciqExtras.classList.toggle("hidden", !iciqOn);
+
+  const iciqBadge = $("#iciqBadge");
+  if (iciqBadge && iciqOn){
+    const score = Number(st?.out?.iciq_score);
+    iciqBadge.textContent = Number.isFinite(score) ? `${score}/21 · ${iciqInterpret(score)}` : "—";
+  }
 }
 
 function updateProfileFromModule8(){
@@ -1451,44 +1545,52 @@ function renderUroIncontRow(){
 }
 
 function renderICIQRow(){
-  const key = "m9.iciq_aplicar";
+  const key = "out.iciq_aplicar";
+
   const row = el("div",{class:"symRow", "data-uro-row":key},[]);
   row.appendChild(el("div",{class:"symHead"},[
     el("div",{class:"symLeft"},[
       el("input",{type:"checkbox","data-key":key, "data-uro-toggle":"true"}),
-      el("span",{},["ICIQ-UI SF (0–21)"])
+      el("div",{class:"symLabel"},["ICIQ-UI SF (0–21) · (si aplica)"])
+    ]),
+    el("div",{class:"symRight"},[
+      el("span",{class:"tag"},["Escala validada"]),
+      (()=> {
+        const a = document.createElement("a");
+        a.href = "https://iciq.net/iciq-ui-sf";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.textContent = "Abrir cuestionario";
+        a.style.color = "var(--terra)";
+        a.style.fontWeight = "800";
+        a.style.textDecoration = "underline";
+        return a;
+      })()
     ])
   ]));
 
-  const extras = el("div",{class:"symExtras hidden", "data-uro-extras-for":key},[]);
-
-  extras.appendChild(el("div",{class:"field"},[
-    el("label",{},["Puntaje ICIQ-UI SF (0–21)"]),
-    el("input",{type:"number","data-key":"m9.iciq_score", min:"0", max:"21"})
-  ]));
-
-  extras.appendChild(el("div",{class:"symHint", "data-iciq-label":"true"},[
-    "Interpretación: —"
-  ]));
-
-  extras.appendChild(el("div",{class:"symHint"},[
-    "Link cuestionario: ",
-    (()=> {
-      const a = document.createElement("a");
-      a.href = "https://iciq.net/iciq-ui-sf";
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      a.textContent = "ICIQ-UI SF";
-      a.style.color = "var(--terra)";
-      a.style.fontWeight = "800";
-      a.style.textDecoration = "underline";
-      return a;
-    })()
-  ]));
+  const extras = el("div",{class:"symExtras hidden", "data-uro-extras-for":key},[
+    el("div",{class:"symGrid"},[
+      el("div",{class:"rangeCompact"},[
+        el("div",{class:"rangeTop"},[
+          el("div",{},["Puntaje ICIQ-UI SF"]),
+          el("div",{class:"rangeValue", "data-iciq-label":"true"},["—"])
+        ]),
+        el("input",{type:"number","data-key":"out.iciq_score", min:"0", max:"21", placeholder:"0–21",
+          style:"margin-top:10px; width:100%; padding:10px; border-radius:14px; border:1px solid rgba(16,32,36,.18); background:rgba(255,255,255,.70); font-weight:700;"
+        })
+      ]),
+      el("div",{class:"field"},[
+        el("label",{},["Situaciones / contexto (opcional)"]),
+        el("textarea",{rows:"2","data-key":"out.iciq_contexto", placeholder:"Describe situaciones de escape/urgencia (si aplica)."},[])
+      ])
+    ])
+  ]);
 
   row.appendChild(extras);
   return row;
 }
+
 
 function updateModule9Visibility(){
   const st = getMergedState();
@@ -2121,38 +2223,61 @@ function renderExercisesBody(){
   if (!body) return;
   body.innerHTML = "";
 
+  // estado UI: mostrar más
+  extras.settings.showAllExercises = !!extras.settings.showAllExercises;
+
   const stage = stageFromState(st);
-  const pool = EXERCISES.filter(ex => ex.stage.includes(stage) || ex.stage.includes("general"));
+  const poolAll = EXERCISES.filter(ex => ex.stage.includes(stage) || ex.stage.includes("general"));
+
+  // en modo 10 min, por defecto mostramos poco (más “boutique”)
+  const pool = (MODE==="10" && !extras.settings.showAllExercises) ? poolAll.slice(0, 6) : poolAll;
 
   const left = el("div",{class:"hCard"},[]);
   left.appendChild(el("div",{class:"hTop"},[
     el("div",{},[
-      el("div",{class:"hTitle"},["Biblioteca (añadir)"]),
-      el("div",{class:"itemSub"},["Ejercicios con propósito y dosificación sugerida (editable)."])
-    ])
+      el("div",{class:"hTitle"},["Biblioteca (liviana)"]),
+      el("div",{class:"itemSub"},["Verás el detalle solo si lo abres."])
+    ]),
+    el("div",{style:"display:flex; gap:8px; flex-wrap:wrap;"},[
+      MODE==="10"
+        ? el("button",{class:"chipBtn", type:"button", onclick:()=>{
+            extras.settings.showAllExercises = !extras.settings.showAllExercises;
+            saveExtras(extras);
+            renderMotorSections();
+          }},[extras.settings.showAllExercises ? "Mostrar menos" : "Mostrar más ejercicios"])
+        : null
+    ].filter(Boolean))
   ]));
+
   pool.forEach(ex=>{
-    left.appendChild(el("div",{class:"item"},[
-      el("div",{class:"itemHead"},[
-        el("div",{},[
-          el("div",{class:"itemTitle"},[ex.name]),
-          el("div",{class:"itemSub"},[`${ex.goal.join(" · ")} · tolerancia ${ex.tol}`])
-        ]),
-        el("button",{class:"smallBtn primary", type:"button", onclick:()=>addExercise(ex.id)},["Añadir"])
+    const row = el("div",{class:"eRow"},[]);
+    const head = el("div",{class:"eHead"},[
+      el("div",{},[
+        el("div",{class:"eName"},[ex.name]),
+        el("div",{class:"eOneLine"},[`Objetivo: ${ex.goal[0] || "—"} · Tolerancia: ${ex.tol}`])
       ]),
-      el("div",{style:"margin-top:10px; white-space:pre-wrap; font-size:12px; font-weight:600; border:1px solid rgba(16,32,36,.14); background:rgba(217,203,179,.25); padding:10px; border-radius:14px;"},[
-        `Dosificación: ${ex.dose}\nCues:\n${ex.cues.map(c=>"• "+c).join("\n")}\nErrores:\n${ex.errors.map(c=>"• "+c).join("\n")}\nProgresión: ${ex.prog}`
+      el("div",{style:"display:flex; gap:8px; flex-wrap:wrap;"},[
+        el("button",{class:"smallBtn primary", type:"button", onclick:()=>addExercise(ex.id)},["Añadir"]),
+        el("button",{class:"smallBtn", type:"button", onclick:()=>{ row.classList.toggle("open"); }},["Ver más"])
       ])
-    ]));
+    ]);
+    row.appendChild(head);
+
+    const more = el("div",{class:"eMore"},[
+      el("div",{style:"white-space:pre-wrap; font-size:12px; font-weight:600; border:1px solid rgba(16,32,36,.14); background:rgba(217,203,179,.20); padding:10px; border-radius:14px;"},[
+        `Dosificación: ${ex.dose}\n\nCues:\n${ex.cues.map(c=>"• "+c).join("\n")}\n\nErrores:\n${ex.errors.map(c=>"• "+c).join("\n")}\n\nProgresión: ${ex.prog}`
+      ])
+    ]);
+    row.appendChild(more);
+
+    left.appendChild(row);
   });
 
   const right = el("div",{class:"hCard"},[]);
   right.appendChild(el("div",{class:"hTop"},[
     el("div",{},[
       el("div",{class:"hTitle"},["Plan de ejercicios (editable)"]),
-      el("div",{class:"itemSub"},[
-        MODE==="full" ? "Sugerido: 5–7 ítems." : "Modo 10 min: máximo 3."
-      ])
+      el("div",{class:"itemSub"},[ MODE==="full" ? "Sugerido: 5–7 ítems." : "Modo 10 min: máximo 3." ])
     ]),
   ]));
 
@@ -2160,19 +2285,18 @@ function renderExercisesBody(){
   if (!selected.length){
     right.appendChild(el("div",{class:"itemSub", style:"margin-top:10px;"},["Aún no hay ejercicios seleccionados."]));
   } else {
-    selected.forEach(ex=>{
-      right.appendChild(renderSelectedExercise(ex));
-    });
+    selected.forEach(ex=> right.appendChild(renderSelectedExercise(ex)));
   }
 
   right.appendChild(el("div",{class:"field"},[
-    el("label",{},["Notas del plan (kine)"]),
+    el("label",{},["Notas del plan (kinesióloga)"]),
     el("textarea",{rows:"2", oninput:(e)=>{ extras.exercisePlan.notes = e.target.value; saveExtras(extras); }},[extras.exercisePlan.notes || ""])
   ]));
 
   body.appendChild(left);
   body.appendChild(right);
 }
+
 
 function addExercise(exId){
   const extras = window.__extras;
@@ -2796,6 +2920,180 @@ function pdfBar(doc, x, y, w, h, value010){
   doc.rect(x,y,w,h);
 }
 
+const PROVIDER = {
+  nombre: "Fernanda Rojas Cruz",
+  cargo: "Kinesióloga especialista en piso pélvico y salud integral femenina",
+  rut: "19.670.038-2",
+  registro: "727918",
+  correo: "Klga.fernandarojascruz@gmail.com",
+  instagram: "@Kinefer"
+};
+
+function pdfColors(){
+  return {
+    cream:[245,239,229],
+    ink:[16,32,36],
+    sand:[217,203,179],
+    terra:[194,106,90]
+  };
+}
+
+function pdfNewPage(doc, title, subtitle){
+  const C = pdfColors();
+
+  // fondo suave (no saturar tinta)
+  doc.setFillColor(...C.cream);
+  doc.rect(0,0,595,842,"F");
+
+  // header blanco (más “boutique”)
+  doc.setFillColor(255,255,255);
+  doc.roundedRect(34,24,527,86,16,16,"F");
+
+  // línea sandstone
+  doc.setDrawColor(...C.sand);
+  doc.setLineWidth(1);
+  doc.line(44, 108, 551, 108);
+
+  // título
+  doc.setTextColor(...C.ink);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(18);
+  doc.text(title, 44, 58);
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+  doc.text(subtitle, 44, 84);
+
+  // mini marca (icono simple)
+  doc.setDrawColor(...C.terra);
+  doc.setLineWidth(2);
+  doc.circle(530, 60, 12);
+  doc.circle(530, 60, 5);
+
+  return 130; // y inicial
+}
+
+function pdfSection(doc, y, title){
+  const C = pdfColors();
+  doc.setTextColor(...C.ink);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(14);
+  doc.text(title, 44, y);
+
+  // acento terracota corto
+  doc.setDrawColor(...C.terra);
+  doc.setLineWidth(2);
+  doc.line(44, y+6, 120, y+6);
+
+  // separador sandstone
+  doc.setDrawColor(...C.sand);
+  doc.setLineWidth(1);
+  doc.line(44, y+14, 551, y+14);
+
+  return y + 28;
+}
+
+function pdfBox(doc, x, y, w, h){
+  const C = pdfColors();
+  doc.setFillColor(255,255,255);
+  doc.setDrawColor(...C.sand);
+  doc.setLineWidth(1);
+  doc.roundedRect(x,y,w,h,14,14,"FD");
+}
+
+function pdfEnsure(doc, y, need, title, subtitle){
+  if (y + need < 820) return y;
+  doc.addPage();
+  return pdfNewPage(doc, title, subtitle);
+}
+
+function pdfBullets(doc, x, y, lines, maxW){
+  const C = pdfColors();
+  doc.setTextColor(...C.ink);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+
+  const cleaned = (lines||[]).filter(s=>String(s||"").trim()!=="");
+  let yy = y;
+
+  cleaned.forEach(line=>{
+    const parts = doc.splitTextToSize(String(line), maxW);
+    // bullet
+    doc.setTextColor(...C.terra);
+    doc.text("•", x, yy);
+    doc.setTextColor(...C.ink);
+    doc.text(parts, x+10, yy);
+    yy += parts.length * 16;
+  });
+
+  return yy;
+}
+
+function pdfScaleBar(doc, x, y, label, value, extraText){
+  const C = pdfColors();
+  const v = Math.max(0, Math.min(10, Number(value||0)));
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+  doc.setTextColor(...C.ink);
+  doc.text(`${label}: ${v}/10 (${levelFrom010(v)})`, x, y);
+
+  // barra sandstone
+  doc.setFillColor(...C.sand);
+  doc.roundedRect(x, y+8, 260, 8, 4, 4, "F");
+
+  // relleno terracota mínimo
+  doc.setFillColor(...C.terra);
+  doc.roundedRect(x, y+8, 260*(v/10), 8, 4, 4, "F");
+
+  if (extraText){
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(11);
+    doc.setTextColor(...C.ink);
+    doc.text(extraText, x, y+28);
+    return y + 44;
+  }
+  return y + 34;
+}
+
+function pdfCheckbox(doc, x, y){
+  const C = pdfColors();
+  doc.setDrawColor(...C.ink);
+  doc.setLineWidth(1);
+  doc.rect(x, y-10, 10, 10);
+}
+
+function pdfSignature(doc, y){
+  const C = pdfColors();
+  y = pdfEnsure(doc, y, 140, "Resumen", ""); // por si queda corto
+
+  // separador
+  doc.setDrawColor(...C.sand);
+  doc.setLineWidth(1);
+  doc.line(44, y, 551, y);
+
+  y += 18;
+  pdfBox(doc, 44, y, 507, 100);
+
+  doc.setTextColor(...C.ink);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+  doc.text("Profesional", 60, y+26);
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(11);
+  doc.text(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, 60, y+46);
+  doc.text(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, 60, y+64);
+  doc.text(`${PROVIDER.correo} · ${PROVIDER.instagram}`, 60, y+82);
+
+  doc.setFont("helvetica","bold");
+  doc.text("Firma:", 60, y+102);
+  doc.setFont("helvetica","normal");
+  doc.text("______________________________", 110, y+102);
+
+  return y + 120;
+}
+
 function exportPdfClin(){
   const st = getMergedState();
   const extras = window.__extras || ExtrasDefault();
@@ -2806,172 +3104,210 @@ function exportPdfClin(){
   const rut  = st?.id?.rut || "—";
   const date = st?.id?.fecha || "—";
 
-  pdfHeader(doc, "Resumen clínico · Piso pélvico", `Usuaria: ${name} · Rut: ${rut} · Fecha: ${date} · Modo: ${MODE==="full"?"Completo":"10 min"}`);
+  const title = "Resumen clínico · Piso pélvico";
+  const sub = `Usuaria: ${name} · Rut: ${rut} · Fecha: ${date} · Modo: ${MODE==="full"?"Completo":"10 min"}`;
 
-  let y = 118;
+  let y = pdfNewPage(doc, title, sub);
 
-  // 1) Datos usuaria
-  pdfSectionTitle(doc, y, "Datos de la usuaria");
-  y += 26;
-  doc.autoTable({
-    startY: y,
-    head: [["Campo", "Valor"]],
-    body: nonEmptyRows([
-      ["Nombre", st?.id?.nombre],
-      ["Edad", st?.id?.edad],
-      ["Rut", st?.id?.rut],
-      ["Fecha", st?.id?.fecha],
-      ["Ocupación", st?.id?.ocupacion],
-      ["Contacto emergencia", st?.id?.contacto_emergencia],
-      ["Embarazo (semanas)", st?.ciclo?.embarazo_semanas],
-      ["Postparto (semanas)", st?.ciclo?.postparto_semanas],
-      ["GSM", st?.ciclo?.gsm ? "Sí" : ""],
-      ["GSM (detalle)", st?.ciclo?.gsm_detalles],
-    ]),
-    styles:{fontSize:11, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    alternateRowStyles:{fillColor:[255,255,255]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
-  y = doc.lastAutoTable.finalY + 18;
+  // Panel exportable: clasificación + qué se ocultó + gráfico (canvas)
+  y = pdfSection(doc, y, "Resumen rápido");
+  y = pdfEnsure(doc, y, 190, title, sub);
 
-  // 2) Síntomas y escalas
-  pdfSectionTitle(doc, y, "Síntomas y escalas");
-  y += 26;
+  pdfBox(doc, 44, y, 507, 150);
 
-  // mini barras (perfil)
-  const perfil = [
-    ["Urinario", st?.perfil?.urinario_0_10],
-    ["Intestinal", st?.perfil?.intestinal_0_10],
-    ["Dolor pélvico/vulvar", st?.perfil?.dolor_pelvico_0_10],
-    ["Dolor en relaciones", st?.perfil?.dolor_relaciones_0_10],
-    ["Bulto/peso", st?.perfil?.prolapso_0_10],
-  ].filter(([,v])=> Number(v||0)>0);
-
-  if (perfil.length){
-    doc.setFont("helvetica","normal");
-    doc.setFontSize(12);
-    doc.text("Perfil (0–10):", 44, y);
-    y += 10;
-
-    perfil.forEach(([lab,val])=>{
-      doc.setFont("helvetica","bold");
-      doc.setFontSize(11);
-      doc.setTextColor(16,32,36);
-      doc.text(`${lab}: ${Number(val||0)}/10 (${levelFrom010(val)})`, 44, y+14);
-      pdfBar(doc, 320, y+6, 220, 10, val);
-      y += 24;
-    });
-    y += 8;
-  }
-
-  const mar = st?.m8?.marinoff;
-  const iciq = st?.m9?.iciq_aplicar ? st?.m9?.iciq_score : "";
-
-  doc.autoTable({
-    startY: y,
-    head: [["Escala", "Resultado"]],
-    body: nonEmptyRows([
-      ["Puntaje ICIQ-UI SF", iciq!=="" ? `${iciq}/21 (${iciqInterpret(iciq)})` : ""],
-      ["Escala de dispareunia de Marinoff", mar!==undefined && mar!=="" ? `${mar} (${marinoffExplain(Number(mar))})` : ""],
-      ["Síntoma principal (0–10)", st?.medicion?.sintoma_0_10!=="" ? `${st?.medicion?.sintoma_0_10}/10 (${levelFrom010(st?.medicion?.sintoma_0_10)})` : ""],
-    ]),
-    styles:{fontSize:11, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
-  y = doc.lastAutoTable.finalY + 18;
-
-  // 3) Hipótesis generadas
-  pdfSectionTitle(doc, y, "Hipótesis generadas");
-  y += 26;
-
-  const hyps = (extras.hypotheses||[]).filter(h=>h.active);
-  doc.autoTable({
-    startY:y,
-    head:[["Dominio", "Hipótesis", "Prioridad", "Confianza"]],
-    body: hyps.length ? hyps.map(h=>[
-      h.domain,
-      h.title,
-      h.priority,
-      h.confidence
-    ]) : [["—","(sin hipótesis activas)","",""]],
-    styles:{fontSize:10, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
-  y = doc.lastAutoTable.finalY + 18;
-
-  // 4) Plan de ejercicios
-  if (y > 720){ doc.addPage(); pdfHeader(doc,"Resumen clínico · Piso pélvico", `Usuaria: ${name} · Fecha: ${date}`); y = 118; }
-  pdfSectionTitle(doc, y, "Plan de ejercicios");
-  y += 26;
-
-  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean);
-  doc.autoTable({
-    startY:y,
-    head:[["Ejercicio", "Dosificación"]],
-    body: exSel.length ? exSel.map(e=>[e.name, (e._dose || e.dose || "")]) : [["—","(sin plan seleccionado)"]],
-    styles:{fontSize:10, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
-  y = doc.lastAutoTable.finalY + 18;
-
-  // 5) Tareas para casa (usuaria) + tareas kine
-  if (y > 720){ doc.addPage(); pdfHeader(doc,"Resumen clínico · Piso pélvico", `Usuaria: ${name} · Fecha: ${date}`); y = 118; }
-  pdfSectionTitle(doc, y, "Tareas para casa");
-  y += 26;
-
-  const tU = (extras.tasks?.usuaria||[]);
-  doc.autoTable({
-    startY:y,
-    head:[["Checklist", "Tarea", "Prioridad"]],
-    body: tU.length ? tU.map(t=>["☐", t.title, t.priority]) : [["", "(sin tareas para casa)", ""]],
-    styles:{fontSize:10, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
-  y = doc.lastAutoTable.finalY + 14;
-
-  const tK = (extras.tasks?.kine||[]);
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
   doc.setTextColor(16,32,36);
-  doc.text("Tareas para la kine:", 44, y+14);
-  y += 22;
+  doc.text(`Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)}`, 60, y+28);
 
-  doc.autoTable({
-    startY:y,
-    head:[["Tarea", "Prioridad"]],
-    body: tK.length ? tK.map(t=>[t.title, t.priority]) : [["(sin tareas para la kine)",""]],
-    styles:{fontSize:10, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(11);
+  doc.text(modeHiddenLine(), 60, y+48, {maxWidth:470});
+
+  // inserta canvas perfil si existe
+  try{
+    const img = $("#cvProfile")?.toDataURL("image/png", 1.0);
+    if (img) doc.addImage(img, "PNG", 60, y+62, 470, 70);
+  } catch {}
+
+  y += 170;
+
+  // Datos de la usuaria
+  y = pdfSection(doc, y, "Datos de la usuaria");
+  y = pdfEnsure(doc, y, 150, title, sub);
+
+  pdfBox(doc, 44, y, 507, 110);
+
+  const line1 = `Nombre: ${name} · Edad: ${st?.id?.edad || "—"} · Rut: ${rut}`;
+  const line2 = `Embarazo (semanas): ${st?.ciclo?.embarazo_semanas || "—"} · Postparto (semanas): ${st?.ciclo?.postparto_semanas || "—"}`;
+  const line3 = `GSM: ${st?.ciclo?.gsm ? "Sí" : "No"}${st?.ciclo?.gsm_detalles ? " · "+st.ciclo.gsm_detalles : ""}`;
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+  doc.text(line1, 60, y+34);
+  doc.text(line2, 60, y+54);
+  doc.text(line3, 60, y+74, {maxWidth:470});
+
+  y += 130;
+
+  // Síntomas y escalas
+  y = pdfSection(doc, y, "Síntomas y escalas");
+  y = pdfEnsure(doc, y, 220, title, sub);
+
+  const scores = domainScores(st);
+  scores.forEach(s=>{
+    y = pdfScaleBar(doc, 44, y, s.name, s.v);
   });
-  y = doc.lastAutoTable.finalY + 18;
 
-  // 6) Próxima sesión
-  if (y > 720){ doc.addPage(); pdfHeader(doc,"Resumen clínico · Piso pélvico", `Usuaria: ${name} · Fecha: ${date}`); y = 118; }
-  pdfSectionTitle(doc, y, "Próxima sesión");
-  y += 26;
+  // ICIQ / Marinoff
+  const iciqOn = !!st?.out?.iciq_aplicar;
+  if (iciqOn){
+    const score = Number(st?.out?.iciq_score);
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(12);
+    doc.text(`Puntaje ICIQ-UI SF: ${Number.isFinite(score)?score:"—"}/21 (${iciqInterpret(score)})`, 44, y+10);
+    y += 28;
+  }
+  const mar = st?.m8?.marinoff;
+  if (mar!==undefined && String(mar).trim()!==""){
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(12);
+    doc.text(`Escala de dispareunia de Marinoff: ${mar} (${marinoffExplain(Number(mar))})`, 44, y+10);
+    y += 28;
+  }
+
+  y += 6;
+
+  // Hipótesis generadas
+  y = pdfEnsure(doc, y, 220, title, sub);
+  y = pdfSection(doc, y, "Hipótesis generadas");
+
+  const hyps = (extras.hypotheses||[]).filter(h=>h.active);
+  pdfBox(doc, 44, y, 507, Math.max(110, 26 + hyps.length*18));
+
+  let yy = y + 26;
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+
+  if (!hyps.length){
+    doc.text("Sin hipótesis activas.", 60, yy);
+    yy += 18;
+  } else {
+    hyps.forEach(h=>{
+      doc.setFont("helvetica","bold");
+      doc.text(`${h.domain} · Prioridad ${h.priority} · Confianza ${h.confidence}`, 60, yy);
+      yy += 16;
+      doc.setFont("helvetica","normal");
+      const lines = doc.splitTextToSize(h.title, 470);
+      doc.text(lines, 60, yy);
+      yy += lines.length*16 + 6;
+    });
+  }
+
+  y = y + Math.max(130, 34 + hyps.length*38);
+
+  // Plan de ejercicios
+  y = pdfEnsure(doc, y, 220, title, sub);
+  y = pdfSection(doc, y, "Plan de ejercicios");
+
+  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean);
+  pdfBox(doc, 44, y, 507, Math.max(120, 26 + exSel.length*22));
+
+  yy = y + 26;
+  if (!exSel.length){
+    doc.text("Sin ejercicios seleccionados.", 60, yy);
+    yy += 18;
+  } else {
+    exSel.forEach(e=>{
+      const dose = (e._dose || e.dose || "").trim();
+      doc.setFont("helvetica","bold");
+      doc.text(`• ${e.name}`, 60, yy);
+      yy += 16;
+      doc.setFont("helvetica","normal");
+      doc.text(dose ? `Dosificación: ${dose}` : "Dosificación: —", 78, yy);
+      yy += 18;
+    });
+  }
+  y = y + Math.max(140, 34 + exSel.length*34);
+
+  // Tareas para casa + tareas para la kinesióloga
+  y = pdfEnsure(doc, y, 260, title, sub);
+  y = pdfSection(doc, y, "Tareas para casa");
+
+  const tU = (extras.tasks?.usuaria||[]);
+  const tK = (extras.tasks?.kine||[]);
+
+  pdfBox(doc, 44, y, 507, Math.max(120, 26 + Math.min(10,tU.length)*22));
+  yy = y + 26;
+
+  if (!tU.length){
+    doc.text("Sin tareas para casa.", 60, yy);
+    yy += 18;
+  } else {
+    tU.slice(0,10).forEach(t=>{
+      pdfCheckbox(doc, 60, yy);
+      doc.setFont("helvetica","normal");
+      doc.text(t.title, 78, yy, {maxWidth:450});
+      yy += 20;
+    });
+  }
+  y = y + Math.max(140, 34 + Math.min(10,tU.length)*22);
+
+  y = pdfEnsure(doc, y, 220, title, sub);
+  y = pdfSection(doc, y, "Tareas para la kinesióloga");
+
+  pdfBox(doc, 44, y, 507, Math.max(110, 26 + Math.min(8,tK.length)*22));
+  yy = y + 26;
+
+  if (!tK.length){
+    doc.text("Sin tareas para la kinesióloga.", 60, yy);
+    yy += 18;
+  } else {
+    tK.slice(0,8).forEach(t=>{
+      doc.text(`• ${t.title} (Prioridad: ${t.priority})`, 60, yy, {maxWidth:470});
+      yy += 18;
+    });
+  }
+  y = y + Math.max(130, 34 + Math.min(8,tK.length)*22);
+
+  // Próxima sesión
+  y = pdfEnsure(doc, y, 220, title, sub);
+  y = pdfSection(doc, y, "Próxima sesión");
 
   const ns = extras.nextSession || [];
-  doc.autoTable({
-    startY:y,
-    head:[["Ítem", "Prioridad"]],
-    body: ns.length ? ns.map(n=>[n.text, n.priority]) : [["(sin ítems)",""]],
-    styles:{fontSize:10, cellPadding:6},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44}
-  });
+  pdfBox(doc, 44, y, 507, Math.max(110, 26 + Math.min(8,ns.length)*22));
+  yy = y + 26;
+
+  if (!ns.length){
+    doc.text("Sin ítems definidos.", 60, yy);
+    yy += 18;
+  } else {
+    ns.slice(0,8).forEach(n=>{
+      doc.text(`• ${n.text} (Prioridad: ${n.priority})`, 60, yy, {maxWidth:470});
+      yy += 18;
+    });
+  }
+  y = y + Math.max(130, 34 + Math.min(8,ns.length)*22);
+
+  // Señales para avisar (caja destacada)
+  y = pdfEnsure(doc, y, 190, title, sub);
+  y = pdfSection(doc, y, "Señales para avisar");
+
+  pdfBox(doc, 44, y, 507, 110);
+  doc.setTextColor(...pdfColors().terra);
+  doc.setFont("helvetica","bold");
+  doc.text("⚠", 60, y+30);
+  doc.setTextColor(...pdfColors().ink);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+  doc.text(
+    "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo o síntomas neurológicos nuevos.",
+    78, y+30, {maxWidth:455}
+  );
+  y += 130;
+
+  // Firma
+  pdfSignature(doc, y);
 
   doc.save(fileBaseName(st) + "_clinico.pdf");
 }
@@ -2985,103 +3321,106 @@ function exportPdfUsuaria(){
   const name = st?.id?.nombre || "—";
   const date = st?.id?.fecha || "—";
 
-  pdfHeader(doc, "Resumen para la usuaria", `Nombre: ${name} · Fecha: ${date}`);
+  const title = "Resumen para la usuaria";
+  const sub = `Nombre: ${name} · Fecha: ${date}`;
 
-  let y = 118;
+  let y = pdfNewPage(doc, title, sub);
 
-  // Qué trabajamos hoy (simple)
-  pdfSectionTitle(doc, y, "Qué trabajamos hoy");
-  y += 26;
+  y = pdfSection(doc, y, "Qué trabajamos hoy");
+  y = pdfEnsure(doc, y, 130, title, sub);
 
-  const clasSimple = (st?.plan?.clasificacion || "").trim() || translateHypothesisForUsuaria(suggestedClassification(st));
-  doc.autoTable({
-    startY:y,
-    head:[["Resumen", ""]],
-    body: [[clasSimple, ""]],
-    styles:{fontSize:12, cellPadding:10},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44},
-    columnStyles:{ 0:{cellWidth: 507} }
-  });
-  y = doc.lastAutoTable.finalY + 18;
+  pdfBox(doc, 44, y, 507, 96);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
 
-  // Plan en casa
-  pdfSectionTitle(doc, y, "Tu plan en casa");
-  y += 26;
+  const hyps = (extras.hypotheses||[]).filter(h=>h.active).slice(0,3).map(h=>translateHypothesisForUsuaria(h.title));
+  const line = hyps.length ? hyps.join(" ") : (st?.plan?.clasificacion || "").trim() || "Hoy trabajamos en comprender tus síntomas y definir un plan seguro y progresivo.";
+  doc.text(line, 60, y+34, {maxWidth:470});
+  y += 120;
 
-  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean);
-  const exText = exSel.map(e=>`• ${e.name} — ${(e._dose||e.dose||"").trim()}`).join("\n");
-  const planTxt = (st?.plan?.plan_2_4 || "").trim();
+  y = pdfSection(doc, y, "Tu plan en casa");
+  y = pdfEnsure(doc, y, 220, title, sub);
 
-  doc.autoTable({
-    startY:y,
-    head:[["Plan", ""]],
-    body: nonEmptyRows([
-      ["Plan 2–4 semanas", planTxt],
-      ["Ejercicios", exText]
-    ]),
-    styles:{fontSize:12, cellPadding:8},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44},
-    columnStyles:{0:{cellWidth:160, fontStyle:"bold"}, 1:{cellWidth:347}}
-  });
-  y = doc.lastAutoTable.finalY + 18;
+  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean).slice(0,7);
 
-  // Checklist tareas usuaria (opcional)
-  pdfSectionTitle(doc, y, "Tareas");
-  y += 26;
+  pdfBox(doc, 44, y, 507, Math.max(120, 26 + exSel.length*30));
+  let yy = y + 26;
 
-  const tU = (extras.tasks?.usuaria||[]).slice(0,12);
-  doc.autoTable({
-    startY:y,
-    head:[["Checklist", "Tarea"]],
-    body: tU.length ? tU.map(t=>["☐", t.title]) : [["", "(sin tareas)"]],
-    styles:{fontSize:12, cellPadding:8},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44},
-    columnStyles:{0:{cellWidth:70}, 1:{cellWidth:437}}
-  });
-  y = doc.lastAutoTable.finalY + 18;
+  if (!exSel.length){
+    doc.text("No hay ejercicios seleccionados aún. La kinesióloga los agregará según tu evaluación.", 60, yy, {maxWidth:470});
+    yy += 18;
+  } else {
+    exSel.forEach(e=>{
+      pdfCheckbox(doc, 60, yy);
+      doc.text(`${e.name}`, 78, yy, {maxWidth:450});
+      yy += 16;
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(11);
+      const dose = (e._dose || e.dose || "").trim();
+      doc.text(dose ? `Dosificación: ${dose}` : "Dosificación: —", 78, yy, {maxWidth:450});
+      doc.setFontSize(12);
+      yy += 18;
+    });
+  }
+  y = y + Math.max(140, 34 + exSel.length*32);
 
-  // Próxima sesión
-  pdfSectionTitle(doc, y, "Qué revisaremos la próxima sesión");
-  y += 26;
+  y = pdfEnsure(doc, y, 220, title, sub);
+  y = pdfSection(doc, y, "Tareas");
 
-  const ns = (extras.nextSession||[]).slice(0,6).map(n=>`• ${n.text}`).join("\n");
-  doc.autoTable({
-    startY:y,
-    head:[["Próxima sesión", ""]],
-    body: [[ns || "(sin ítems)", ""]],
-    styles:{fontSize:12, cellPadding:10},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44},
-    columnStyles:{ 0:{cellWidth: 507} }
-  });
-  y = doc.lastAutoTable.finalY + 18;
+  const tU = (extras.tasks?.usuaria||[]).slice(0,10);
+  pdfBox(doc, 44, y, 507, Math.max(110, 26 + tU.length*22));
+  yy = y + 26;
 
-  // Señales de alarma
-  pdfSectionTitle(doc, y, "Señales para avisar");
-  y += 26;
+  if (!tU.length){
+    doc.text("Sin tareas definidas por ahora.", 60, yy);
+    yy += 18;
+  } else {
+    tU.forEach(t=>{
+      pdfCheckbox(doc, 60, yy);
+      doc.text(t.title, 78, yy, {maxWidth:450});
+      yy += 20;
+    });
+  }
+  y = y + Math.max(130, 34 + tU.length*22);
 
-  const alertas = "Avísanos/consulta si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo o síntomas neurológicos nuevos.";
+  y = pdfEnsure(doc, y, 190, title, sub);
+  y = pdfSection(doc, y, "Qué revisaremos la próxima sesión");
 
-  doc.autoTable({
-    startY:y,
-    head:[["", ""]],
-    body: [[alertas, ""]],
-    styles:{fontSize:12, cellPadding:10},
-    headStyles:{fillColor:[245,239,229], textColor:[16,32,36]},
-    theme:"grid",
-    margin:{left:44,right:44},
-    columnStyles:{ 0:{cellWidth: 507} }
-  });
+  const ns = (extras.nextSession||[]).slice(0,6);
+  pdfBox(doc, 44, y, 507, Math.max(110, 26 + ns.length*22));
+  yy = y + 26;
 
+  if (!ns.length){
+    doc.text("La próxima sesión revisaremos tu progreso y ajustaremos el plan.", 60, yy, {maxWidth:470});
+    yy += 18;
+  } else {
+    ns.forEach(n=>{
+      doc.text(`• ${n.text}`, 60, yy, {maxWidth:470});
+      yy += 18;
+    });
+  }
+  y = y + Math.max(130, 34 + ns.length*22);
+
+  y = pdfEnsure(doc, y, 190, title, sub);
+  y = pdfSection(doc, y, "Señales para avisar");
+
+  pdfBox(doc, 44, y, 507, 110);
+  doc.setTextColor(...pdfColors().terra);
+  doc.setFont("helvetica","bold");
+  doc.text("⚠", 60, y+30);
+  doc.setTextColor(...pdfColors().ink);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+  doc.text(
+    "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo o síntomas neurológicos nuevos.",
+    78, y+30, {maxWidth:455}
+  );
+  y += 130;
+
+  pdfSignature(doc, y);
   doc.save(fileBaseName(st) + "_usuaria.pdf");
 }
+
 
 function flatten(obj){
   const out = [];
