@@ -25,7 +25,7 @@
         <div class="mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <path d="M6 12c0-4 2.5-7 6-7s6 3 6 7-2.5 7-6 7-6-3-6-7Z" stroke="currentColor" stroke-width="1.6"/>
-            <path d="M9 12c0-2.4 1.4-4.2 3-4.2s3 1.8 3 4.2-1.4 4.2-3 4.2-3-1.8-3-4.2Z" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M9 12c0-2.4 1.4-4.2 3-4.2s3 1.8 3 4.2-1.4 4.2-3 4.2Z" stroke="currentColor" stroke-width="1.6"/>
           </svg>
         </div>
         <div>
@@ -35,14 +35,33 @@
       </div>
 
       <div class="actions">
+        <!-- Toggle modo (se nota) -->
         <div class="seg" role="group" aria-label="Modo">
-          <button id="btnMode10" class="segbtn active" type="button">10 min</button>
-          <button id="btnModeFull" class="segbtn" type="button">Completa</button>
+          <button id="btnMode10" class="segbtn active" type="button" aria-pressed="true">
+            <span class="dot">●</span> Modo 10 min <span class="miniTag">Activo</span>
+          </button>
+          <button id="btnModeFull" class="segbtn" type="button" aria-pressed="false">
+            <span class="dot">●</span> Modo Completo
+          </button>
         </div>
 
+        <span id="pillMode" class="modePill">Modo actual: 10 min</span>
+
+        <!-- Toggle MSK -->
+        <button id="btnMsk" class="btn soft" type="button" aria-pressed="false" title="Activar enfoque MSK">
+          MSK: OFF
+        </button>
+
+        <!-- Automatización -->
+        <button id="btnAuto" class="btn" type="button" title="Autocompletar según modo">
+          Autocompletar
+        </button>
+
+        <!-- Export -->
         <button id="btnPdfClin" class="btn" type="button">PDF clínico</button>
-        <button id="btnPdfPac" class="btn soft" type="button">PDF paciente</button>
+        <button id="btnPdfPac" class="btn soft" type="button">PDF usuaria</button>
         <button id="btnXlsx" class="btn soft" type="button">Excel</button>
+
         <button id="btnClear" class="btn ghost" type="button" title="Borrar ficha">Borrar</button>
       </div>
     </div>
@@ -54,9 +73,10 @@
         <div class="hero-left">
           <div class="hero-kicker">Resumen rápido</div>
           <div class="hero-row">
-            <div class="chip" id="chipPaciente">Paciente: —</div>
+            <div class="chip" id="chipPaciente">Usuaria: —</div>
             <div class="chip" id="chipEtapa">Embarazo/postparto: —</div>
             <div class="chip" id="chipSeguridad">Seguridad: —</div>
+            <div class="chip" id="chipMsk">MSK: OFF</div>
           </div>
 
           <div class="hero-big" id="heroClasif">Clasificación sugerida: —</div>
@@ -64,7 +84,7 @@
 
           <div class="hero-viz">
             <div class="viz-card">
-              <div class="viz-title">Completitud</div>
+              <div class="viz-title">Completitud (campos clave)</div>
               <canvas id="cvProgress" width="160" height="160"></canvas>
               <div class="viz-note" id="progressText">—</div>
             </div>
@@ -72,7 +92,7 @@
             <div class="viz-card wide">
               <div class="viz-title">Perfil de síntomas (0–10)</div>
               <canvas id="cvProfile" width="420" height="160"></canvas>
-              <div class="viz-note">Tip: usa los deslizadores para que el gráfico se vea útil (y se exporte).</div>
+              <div class="viz-note">Tip: usa los deslizadores para que el gráfico sea útil (y se exporte).</div>
             </div>
           </div>
         </div>
@@ -86,15 +106,15 @@
             <div class="mini-l">Plan 2–4 semanas (1 idea)</div>
             <div class="mini-v" id="miniPlan">—</div>
           </div>
-
           <div class="mini">
-            <div class="mini-l">Checklist de sesión</div>
-            <div class="mini-v" id="miniChecklist">—</div>
+            <div class="mini-l">Qué se ocultó por modo</div>
+            <div class="mini-v" id="miniOculto">—</div>
           </div>
         </div>
       </div>
     </section>
 
+    <!-- Render dinámico -->
     <section id="formRoot" class="stack"></section>
 
     <footer class="foot">
@@ -103,6 +123,9 @@
       <span class="footnote">Todo queda en tu navegador. No se sube nada a internet.</span>
     </footer>
   </main>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>
