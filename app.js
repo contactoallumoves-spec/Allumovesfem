@@ -2950,6 +2950,82 @@ function pdfColors(){
   };
 }
 
+// ===== Assets para PDF (logo + foto) =====
+const PDF_ASSET_FILES = {
+  fer: "fer.jpg",
+  logo: "logo.png"
+};
+
+function dataUrlFmt(dataUrl){
+  return (dataUrl || "").startsWith("data:image/png") ? "PNG" : "JPEG";
+}
+
+async function fetchAsDataURL(url){
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("No se pudo cargar " + url);
+  const blob = await res.blob();
+  return await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function ensurePdfAssets(){
+  if (window.__pdfAssets) return window.__pdfAssets;
+  const out = {};
+  try { out.logo = await fetchAsDataURL(PDF_ASSET_FILES.logo); } catch {}
+  try { out.fer  = await fetchAsDataURL(PDF_ASSET_FILES.fer); } catch {}
+  window.__pdfAssets = out;
+  return out;
+}
+
+// icono de alerta (evita el emoji ⚠ que se vuelve "&")
+function pdfAlertIcon(doc, x, y){
+  const C = pdfColors();
+  doc.setFillColor(...C.terra);
+  doc.circle(x, y, 8, "F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+  doc.text("!", x-2.2, y+4.2);
+  doc.setTextColor(...C.ink);
+}
+
+// línea corta para PDF (sin el párrafo largo “Oculto en 10 min…”)
+function modeLinePdf(){
+  return MODE === "full" ? "Modo: Completo" : "Modo: 10 min (vista abreviada)";
+}
+
+// mini-barras para el Resumen rápido (más nítido que meter el canvas)
+function pdfMiniProfile(doc, x, y, scores){
+  const C = pdfColors();
+  let yy = y;
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(11);
+  doc.setTextColor(...C.ink);
+
+  scores.forEach(s=>{
+    const v = Math.max(0, Math.min(10, Number(s.v||0)));
+    doc.text(`${s.name}: ${v}/10`, x, yy);
+
+    // barra fondo
+    doc.setFillColor(...C.sand);
+    doc.roundedRect(x+130, yy-8, 260, 8, 4, 4, "F");
+
+    // barra relleno
+    doc.setFillColor(...C.terra);
+    doc.roundedRect(x+130, yy-8, 260*(v/10), 8, 4, 4, "F");
+
+    yy += 18;
+  });
+
+  return yy;
+}
+
+
 function pdfNewPage(doc, title, subtitle){
   const C = pdfColors();
 
@@ -2976,11 +3052,14 @@ function pdfNewPage(doc, title, subtitle){
   doc.setFontSize(12);
   doc.text(subtitle, 44, 84);
 
-  // mini marca (icono simple)
-  doc.setDrawColor(...C.terra);
-  doc.setLineWidth(2);
-  doc.circle(530, 60, 12);
-  doc.circle(530, 60, 5);
+  // logo + foto (si existen)
+   const A = window.__pdfAssets || {};
+   try{
+     if (A.logo) doc.addImage(A.logo, dataUrlFmt(A.logo), 495, 38, 48, 48);
+   } catch {}
+   try{
+     if (A.fer)  doc.addImage(A.fer,  dataUrlFmt(A.fer), 440, 38, 48, 48);
+   } catch {}
 
   return 130; // y inicial
 }
@@ -3106,11 +3185,12 @@ function pdfSignature(doc, y){
   return y + 120;
 }
 
-function exportPdfClin(){
+async function exportPdfClin(){
   const st = getMergedState();
   const extras = window.__extras || ExtrasDefault();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:"pt", format:"a4"});
+   await ensurePdfAssets();
 
   const name = st?.id?.nombre || "—";
   const rut  = st?.id?.rut || "—";
@@ -3125,24 +3205,22 @@ function exportPdfClin(){
   y = pdfSection(doc, y, "Resumen rápido");
   y = pdfEnsure(doc, y, 190, title, sub);
 
-  pdfBox(doc, 44, y, 507, 150);
+    pdfBox(doc, 44, y, 507, 190);
+   
+   doc.setFont("helvetica","bold");
+   doc.setFontSize(12);
+   doc.setTextColor(16,32,36);
+   doc.text(`Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)}`, 60, y+28);
+   
+   doc.setFont("helvetica","normal");
+   doc.setFontSize(11);
+   doc.text(modeLinePdf(), 60, y+48);
+   
+   const scoresMini = domainScores(st);
+   pdfMiniProfile(doc, 60, y+78, scoresMini);
+   
+   y += 210;
 
-  doc.setFont("helvetica","bold");
-  doc.setFontSize(12);
-  doc.setTextColor(16,32,36);
-  doc.text(`Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)}`, 60, y+28);
-
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(11);
-  doc.text(modeHiddenLine(), 60, y+48, {maxWidth:470});
-
-  // inserta canvas perfil si existe
-  try{
-    const img = $("#cvProfile")?.toDataURL("image/png", 1.0);
-    if (img) doc.addImage(img, "PNG", 60, y+62, 470, 70);
-  } catch {}
-
-  y += 170;
 
   // Datos de la usuaria
   y = pdfSection(doc, y, "Datos de la usuaria");
@@ -3308,7 +3386,7 @@ function exportPdfClin(){
   pdfBox(doc, 44, y, 507, 110);
   doc.setTextColor(...pdfColors().terra);
   doc.setFont("helvetica","bold");
-  doc.text("⚠", 60, y+30);
+  pdfAlertIcon(doc, 66, y+30);
   doc.setTextColor(...pdfColors().ink);
   doc.setFont("helvetica","normal");
   doc.setFontSize(12);
@@ -3324,11 +3402,12 @@ function exportPdfClin(){
   doc.save(fileBaseName(st) + "_clinico.pdf");
 }
 
-function exportPdfUsuaria(){
+async function exportPdfUsuaria(){
   const st = getMergedState();
   const extras = window.__extras || ExtrasDefault();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:"pt", format:"a4"});
+   await ensurePdfAssets();
 
   const name = st?.id?.nombre || "—";
   const date = st?.id?.fecha || "—";
@@ -3419,7 +3498,7 @@ function exportPdfUsuaria(){
   pdfBox(doc, 44, y, 507, 110);
   doc.setTextColor(...pdfColors().terra);
   doc.setFont("helvetica","bold");
-  doc.text("⚠", 60, y+30);
+  pdfAlertIcon(doc, 66, y+30);
   doc.setTextColor(...pdfColors().ink);
   doc.setFont("helvetica","normal");
   doc.setFontSize(12);
