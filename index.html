@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
 
   <!-- PDF -->
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -47,9 +47,9 @@
 
         <span id="pillMode" class="modePill">Modo actual: 10 min</span>
 
-        <!-- Toggle MSK -->
-        <button id="btnMsk" class="btn soft" type="button" aria-pressed="false" title="Activar enfoque MSK">
-          MSK: OFF
+        <!-- Toggle músculo-esquelético -->
+        <button id="btnMsk" class="btn soft" type="button" aria-pressed="false" title="Activar enfoque músculo-esquelético">
+          Músculo-esquelético: OFF
         </button>
 
         <!-- Automatización -->
@@ -59,7 +59,7 @@
 
         <!-- Export -->
         <button id="btnPdfClin" class="btn" type="button">PDF clínico</button>
-        <button id="btnPdfPac" class="btn soft" type="button">PDF usuaria</button>
+        <button id="btnPdfUsuaria" class="btn soft" type="button">PDF usuaria</button>
         <button id="btnXlsx" class="btn soft" type="button">Excel</button>
 
         <button id="btnClear" class="btn ghost" type="button" title="Borrar ficha">Borrar</button>
@@ -73,10 +73,10 @@
         <div class="hero-left">
           <div class="hero-kicker">Resumen rápido</div>
           <div class="hero-row">
-            <div class="chip" id="chipPaciente">Usuaria: —</div>
+            <div class="chip" id="chipUsuaria">Usuaria: —</div>
             <div class="chip" id="chipEtapa">Embarazo/postparto: —</div>
             <div class="chip" id="chipSeguridad">Seguridad: —</div>
-            <div class="chip" id="chipMsk">MSK: OFF</div>
+            <div class="chip" id="chipMsk">Músculo-esquelético: OFF</div>
           </div>
 
           <div class="hero-big" id="heroClasif">Clasificación sugerida: —</div>
@@ -92,7 +92,7 @@
             <div class="viz-card wide">
               <div class="viz-title">Perfil de síntomas (0–10)</div>
               <canvas id="cvProfile" width="420" height="160"></canvas>
-              <div class="viz-note">Tip: usa los deslizadores para que el gráfico sea útil (y se exporte).</div>
+              <div class="viz-note">Tip: usa los controles 0–10 para que el gráfico sea útil (y se exporte).</div>
             </div>
           </div>
         </div>
