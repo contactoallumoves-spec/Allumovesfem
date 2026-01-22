@@ -625,3 +625,66 @@ label.check span{
   margin-bottom:8px;
 }
 
+
+/* =========================
+   OVERRIDE FINAL (paleta lisa + checkbox custom)
+   PÉGALO AL FINAL del styles.css
+   ========================= */
+
+/* Fondo liso (sin degradados) */
+html, body{
+  background: var(--cream) !important;
+}
+body{
+  background: var(--cream) !important;
+}
+
+/* Barra superior sin vidrio/degradado */
+.topbar{
+  background: var(--cream) !important;
+  backdrop-filter: none !important;
+}
+
+/* Checkbox: elimina estilo nativo (y sus "conectores" raros) */
+input[type="checkbox"]{
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  width: 18px;
+  height: 18px;
+  border: 1.6px solid rgba(16,32,36,.30);
+  border-radius: 6px;
+  background: rgba(255,255,255,.75);
+  display: inline-block;
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+input[type="checkbox"]::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:14px 14px;
+  opacity:0;
+}
+
+input[type="checkbox"]:checked{
+  background: rgba(194,106,90,.18);
+  border-color: rgba(194,106,90,.60);
+}
+
+input[type="checkbox"]:checked::after{
+  opacity:1;
+  /* check en SVG (Ink Blue) */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M4 10.5l3.2 3.2L16 4.9' fill='none' stroke='%23102024' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+
+input[type="checkbox"]:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(194,106,90,.14);
+}
+
+/* Ajuste fino para tus filas compactas */
+.symLeft input[type="checkbox"]{ margin-top: 3px; }
