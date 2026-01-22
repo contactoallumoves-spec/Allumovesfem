@@ -3262,6 +3262,37 @@ function pdfCheckbox(doc, x, y){
   doc.rect(x, y-10, 10, 10);
 }
 
+/* ===== Helpers PDF: wrap real + altura real (evita que el texto se salga/mezcle) ===== */
+function pdfSplit(doc, text, maxW){
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  return s ? doc.splitTextToSize(s, maxW) : [];
+}
+
+function pdfDrawText(doc, text, x, y, maxW, lineH=16){
+  const lines = pdfSplit(doc, text, maxW);
+  if (!lines.length) return y;
+  doc.text(lines, x, y);
+  return y + (lines.length * lineH);
+}
+
+function pdfDrawCheckboxText(doc, x, y, text, maxW, lineH=16){
+  pdfCheckbox(doc, x, y);
+  const lines = pdfSplit(doc, text, maxW);
+  if (!lines.length) return y + lineH;
+  doc.text(lines, x + 18, y);
+  return y + (lines.length * lineH) + 4;
+}
+
+function pdfListHeight(doc, items, maxW, lineH=16, extraGap=6){
+  if (!items || !items.length) return lineH;
+  let h = 0;
+  items.forEach(t=>{
+    const lines = pdfSplit(doc, t, maxW);
+    h += Math.max(1, lines.length) * lineH + extraGap;
+  });
+  return h;
+}
+
 function pdfSignature(doc, y){
   const C = pdfColors();
   y = pdfEnsure(doc, y, 140, "Resumen", ""); // por si queda corto
@@ -3404,52 +3435,76 @@ async function exportPdfClin(){
 
   y = y + Math.max(130, 34 + hyps.length*38);
 
-  // Plan de ejercicios
-  y = pdfEnsure(doc, y, 220, title, sub);
-  y = pdfSection(doc, y, "Plan de ejercicios");
+  // Plan de ejercicios (wrap real + sin "•")
+y = pdfEnsure(doc, y, 260, title, sub);
+y = pdfSection(doc, y, "Plan de ejercicios");
 
-  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean);
-  pdfBox(doc, 44, y, 507, Math.max(120, 26 + exSel.length*22));
+const exSel = (extras.exercisePlan?.selectedIds||[])
+  .map(id=>EXERCISES.find(e=>e.id===id))
+  .filter(Boolean);
 
-  yy = y + 26;
-  if (!exSel.length){
-    doc.text("Sin ejercicios seleccionados.", 60, yy);
-    yy += 18;
-  } else {
-    exSel.forEach(e=>{
-      const dose = (e._dose || e.dose || "").trim();
-      doc.setFont("helvetica","bold");
-      doc.text(`• ${e.name}`, 60, yy);
-      yy += 16;
-      doc.setFont("helvetica","normal");
-      doc.text(dose ? `Dosificación: ${dose}` : "Dosificación: —", 78, yy);
-      yy += 18;
-    });
-  }
-  y = y + Math.max(140, 34 + exSel.length*34);
+const exNeed = exSel.length
+  ? exSel.reduce((acc, e)=>{
+      const dose = String((e._dose || e.dose || "")).trim() || "—";
+      const nameH = pdfSplit(doc, `- ${e.name}`, 470).length * 16;
+      const doseH = pdfSplit(doc, `Dosificación: ${dose}`, 455).length * 14;
+      return acc + nameH + doseH + 10;
+    }, 0)
+  : 18;
+
+const exBoxH = Math.max(120, 26 + exNeed + 12);
+pdfBox(doc, 44, y, 507, exBoxH);
+
+let yy = y + 26;
+
+if (!exSel.length){
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(12);
+  yy = pdfDrawText(doc, "Sin ejercicios seleccionados.", 60, yy, 470, 16) + 6;
+} else {
+  exSel.forEach(e=>{
+    const dose = String((e._dose || e.dose || "")).trim() || "—";
+
+    doc.setFont("helvetica","bold");
+    doc.setFontSize(12);
+    yy = pdfDrawText(doc, `- ${e.name}`, 60, yy, 470, 16);
+
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(11);
+    yy = pdfDrawText(doc, `Dosificación: ${dose}`, 78, yy, 455, 14) + 6;
+
+    doc.setFontSize(12);
+  });
+}
+
+y = y + exBoxH + 20;
 
   // Tareas para casa + tareas para la kinesióloga
   y = pdfEnsure(doc, y, 260, title, sub);
-  y = pdfSection(doc, y, "Tareas para casa");
+  y = pdfEnsure(doc, y, 320, title, sub);
+   y = pdfSection(doc, y, "Tareas para casa");
+   
+   const tU = (extras.tasks?.usuaria||[]).slice(0,10).map(t=>String(t.title||"").trim()).filter(Boolean);
+   
+   const tUneed = pdfListHeight(doc, tU, 450, 16, 6);
+   const tUboxH = Math.max(120, 26 + tUneed + 12);
+   
+   pdfBox(doc, 44, y, 507, tUboxH);
+   let yy = y + 26;
+   
+   doc.setFont("helvetica","normal");
+   doc.setFontSize(12);
+   
+   if (!tU.length){
+     yy = pdfDrawText(doc, "Sin tareas para casa.", 60, yy, 470, 16) + 6;
+   } else {
+     tU.forEach(titleLine=>{
+       yy = pdfDrawCheckboxText(doc, 60, yy, titleLine, 450, 16);
+     });
+   }
+   
+   y = y + tUboxH + 20;
 
-  const tU = (extras.tasks?.usuaria||[]);
-  const tK = (extras.tasks?.kine||[]);
-
-  pdfBox(doc, 44, y, 507, Math.max(120, 26 + Math.min(10,tU.length)*22));
-  yy = y + 26;
-
-  if (!tU.length){
-    doc.text("Sin tareas para casa.", 60, yy);
-    yy += 18;
-  } else {
-    tU.slice(0,10).forEach(t=>{
-      pdfCheckbox(doc, 60, yy);
-      doc.setFont("helvetica","normal");
-      doc.text(t.title, 78, yy, {maxWidth:450});
-      yy += 20;
-    });
-  }
-  y = y + Math.max(140, 34 + Math.min(10,tU.length)*22);
 
   y = pdfEnsure(doc, y, 220, title, sub);
   y = pdfSection(doc, y, "Tareas para la kinesióloga");
@@ -3460,13 +3515,24 @@ async function exportPdfClin(){
   if (!tK.length){
     doc.text("Sin tareas para la kinesióloga.", 60, yy);
     yy += 18;
-  } else {
-    tK.slice(0,8).forEach(t=>{
-      doc.text(`• ${t.title} (Prioridad: ${t.priority})`, 60, yy, {maxWidth:470});
-      yy += 18;
-    });
-  }
-  y = y + Math.max(130, 34 + Math.min(8,tK.length)*22);
+ } else {
+  const lines = tK.slice(0,8).map(t=>`- ${t.title} (Prioridad: ${t.priority})`);
+  // caja más alta según wrap real
+  const need = pdfListHeight(doc, lines, 470, 16, 4);
+  const boxH = Math.max(110, 26 + need + 12);
+  // IMPORTANTÍSIMO: redibuja la caja con altura correcta
+  pdfBox(doc, 44, y, 507, boxH);
+
+  yy = y + 26;
+  lines.forEach(line=>{
+    yy = pdfDrawText(doc, line, 60, yy, 470, 16) + 2;
+  });
+
+  y = y + boxH + 20;
+  // y NO debe volver a sumar el Math.max viejo
+  // así que SALTA el y = y + Math.max(...) original para este bloque
+  // (borra esa línea si la tienes justo después)
+}
 
   // Próxima sesión
   y = pdfEnsure(doc, y, 220, title, sub);
@@ -3528,12 +3594,24 @@ async function exportPdfUsuaria(){
   y = pdfSection(doc, y, "Qué trabajamos hoy");
   y = pdfEnsure(doc, y, 130, title, sub);
 
+   
+
   pdfBox(doc, 44, y, 507, 96);
   doc.setFont("helvetica","normal");
   doc.setFontSize(12);
 
-  const hyps = (extras.hypotheses||[]).filter(h=>h.active).slice(0,3).map(h=>translateHypothesisForUsuaria(h.title));
-  const line = hyps.length ? hyps.join(" ") : (st?.plan?.clasificacion || "").trim() || "Hoy trabajamos en comprender tus síntomas y definir un plan seguro y progresivo.";
+  const hypsRaw = (extras.hypotheses||[])
+  .filter(h=>h.active)
+  .slice(0,4)
+  .map(h=>String(translateHypothesisForUsuaria(h.title) || "").trim())
+  .filter(Boolean);
+
+// elimina repetidas (evita “frases iguales” dos veces)
+const hyps = Array.from(new Set(hypsRaw));
+
+const line = hyps.length
+  ? hyps.join(" ")
+  : String((st?.plan?.clasificacion || "")).trim() || "Hoy trabajamos en comprender tus síntomas y definir un plan seguro y progresivo.";
   doc.text(line, 60, y+34, {maxWidth:470});
   y += 120;
 
