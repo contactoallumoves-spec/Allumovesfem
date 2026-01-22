@@ -3477,7 +3477,7 @@ function pdfBoxFlowChecklist(doc, y, pageTitle, pageSub, sectionTitle, items, op
 function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   const C = pdfColors();
 
-  const boxH = 118;
+  const boxH = 140;
   const bottomMargin = 34;
   const yBox = 842 - bottomMargin - boxH;
 
@@ -3501,11 +3501,13 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   doc.setFontSize(12);
   doc.text("Profesional", 60, yBox+26);
 
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(11);
-  doc.text(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, 60, yBox+46);
-  doc.text(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, 60, yBox+64);
-  doc.text(`${PROVIDER.correo} · ${PROVIDER.instagram}`, 60, yBox+82);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+   const textMaxW = 360; // deja espacio a la derecha para la foto
+   doc.text(doc.splitTextToSize(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, textMaxW), 60, yBox+46);
+   doc.text(doc.splitTextToSize(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, textMaxW), 60, yBox+70);
+   doc.text(doc.splitTextToSize(`${PROVIDER.correo} · ${PROVIDER.instagram}`, textMaxW), 60, yBox+92);
+
 
   // firma (DENTRO del recuadro, bien abajo)
   const ySign = yBox + boxH - 18;
@@ -3520,7 +3522,7 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
     if (A.ferRound){
       const size = 56;
       const xImg = 551 - 16 - size;
-      const yImg = yBox + 34;
+      const yImg = yBox + 42;
 
       doc.setDrawColor(...C.sand);
       doc.setLineWidth(1);
