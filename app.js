@@ -3020,6 +3020,7 @@ async function fetchAsDataURL(url){
 function loadImg(dataUrl){
   return new Promise((resolve, reject)=>{
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = ()=> resolve(img);
     img.onerror = reject;
     img.src = dataUrl;
@@ -3293,6 +3294,178 @@ function pdfListHeight(doc, items, maxW, lineH=16, extraGap=6){
   return h;
 }
 
+
+/* =======================
+   PDF: cajas "a prueba de texto largo"
+   - Todo texto se envuelve (wrap) y SIEMPRE queda dentro de la caja.
+   - Si el texto no cabe, continúa en la página siguiente (repitiendo el título de sección).
+   ======================= */
+
+function pdfWrapLines(doc, text, maxW){
+  const raw = String(text ?? "").replace(/\r/g,"");
+  if (!raw.trim()) return [];
+  const paras = raw.split("\n");
+  const out = [];
+  paras.forEach((p, idx)=>{
+    const s = String(p ?? "").trim();
+    if (!s){
+      // deja línea en blanco entre párrafos (si hay)
+      if (idx !== paras.length-1) out.push("");
+      return;
+    }
+    const lines = doc.splitTextToSize(s, maxW);
+    out.push(...lines);
+    if (idx !== paras.length-1) out.push("");
+  });
+  // limpia vacíos al inicio/fin
+  while(out.length && out[0]==="") out.shift();
+  while(out.length && out[out.length-1]==="") out.pop();
+  return out;
+}
+
+function pdfFlowNewPage(doc, pageTitle, pageSub, sectionTitle, isCont){
+  doc.addPage();
+  let y = pdfNewPage(doc, pageTitle, pageSub);
+  if (sectionTitle){
+    y = pdfSection(doc, y, isCont ? `${sectionTitle} (continuación)` : sectionTitle);
+  }
+  return y;
+}
+
+function pdfBoxFlowText(doc, y, pageTitle, pageSub, sectionTitle, text, opts={}){
+  const x = opts.x ?? 44;
+  const w = opts.w ?? 507;
+  const padX = opts.padX ?? 16;
+  const padTop = opts.padTop ?? 26;
+  const padBottom = opts.padBottom ?? 16;
+  const lineH = opts.lineH ?? 16;
+  const fontSize = opts.fontSize ?? 12;
+  const minH = opts.minH ?? 96;
+  const bottom = 820;
+
+  const maxW = w - padX*2;
+  let lines = Array.isArray(text) ? text : pdfWrapLines(doc, text, maxW);
+  if (!lines.length) lines = ["—"];
+
+  let i = 0;
+  let first = true;
+
+  while(i < lines.length){
+    // si no cabe ni lo mínimo, nueva página
+    if (y + minH > bottom){
+      y = pdfFlowNewPage(doc, pageTitle, pageSub, sectionTitle, !first);
+    }
+
+    const availH = bottom - y - 12;
+    const maxLines = Math.max(1, Math.floor((availH - padTop - padBottom) / lineH));
+    const seg = lines.slice(i, i + maxLines);
+
+    const boxH = Math.max(minH, padTop + padBottom + seg.length * lineH);
+    pdfBox(doc, x, y, w, boxH);
+
+    doc.setTextColor(...pdfColors().ink);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(fontSize);
+    doc.text(seg, x + padX, y + padTop);
+
+    y += boxH + 16;
+    i += maxLines;
+    first = false;
+
+    // si queda texto y estamos al fondo, crea página y repite sección
+    if (i < lines.length && y + minH > bottom){
+      y = pdfFlowNewPage(doc, pageTitle, pageSub, sectionTitle, true);
+    }
+  }
+
+  return y;
+}
+
+function pdfChecklistTokens(doc, items, maxW){
+  const tokens = [];
+  (items || []).forEach((it)=>{
+    const raw = String(it ?? "").trim();
+    const lines = raw ? pdfWrapLines(doc, raw, maxW) : ["—"];
+    const clean = lines.length ? lines : ["—"];
+    clean.forEach((ln, idx)=>{
+      tokens.push({ text: ln, checkbox: idx === 0 });
+    });
+    // pequeña separación entre ítems
+    tokens.push({ text: "", checkbox: false, spacer: true });
+  });
+
+  // quita separador final
+  while(tokens.length && tokens[tokens.length-1].spacer) tokens.pop();
+  return tokens;
+}
+
+function pdfBoxFlowChecklist(doc, y, pageTitle, pageSub, sectionTitle, items, opts={}){
+  const x = opts.x ?? 44;
+  const w = opts.w ?? 507;
+  const padX = opts.padX ?? 16;
+  const padTop = opts.padTop ?? 26;
+  const padBottom = opts.padBottom ?? 16;
+  const lineH = opts.lineH ?? 16;
+  const fontSize = opts.fontSize ?? 12;
+  const minH = opts.minH ?? 110;
+  const bottom = 820;
+
+  const textX = x + padX + 18;              // después del checkbox
+  const maxW = w - (padX*2 + 18);           // ancho útil texto
+  const tokens = pdfChecklistTokens(doc, items, maxW);
+
+  if (!tokens.length){
+    return pdfBoxFlowText(doc, y, pageTitle, pageSub, sectionTitle, "—", opts);
+  }
+
+  let i = 0;
+  let first = true;
+
+  while(i < tokens.length){
+    if (y + minH > bottom){
+      y = pdfFlowNewPage(doc, pageTitle, pageSub, sectionTitle, !first);
+    }
+
+    const availH = bottom - y - 12;
+    const maxLines = Math.max(1, Math.floor((availH - padTop - padBottom) / lineH));
+    const seg = tokens.slice(i, i + maxLines);
+
+    const realLines = seg.reduce((acc, t)=> acc + (t.spacer ? 0.4 : 1), 0);
+    const boxH = Math.max(minH, padTop + padBottom + realLines * lineH);
+
+    pdfBox(doc, x, y, w, boxH);
+
+    doc.setTextColor(...pdfColors().ink);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(fontSize);
+
+    let yy = y + padTop;
+
+    seg.forEach(t=>{
+      if (t.spacer){
+        yy += Math.round(lineH * 0.4);
+        return;
+      }
+      if (t.checkbox) pdfCheckbox(doc, x + padX, yy);
+      if (String(t.text || "").trim() !== ""){
+        doc.text(String(t.text), textX, yy);
+      }
+      yy += lineH;
+    });
+
+    y += boxH + 16;
+    i += maxLines;
+    first = false;
+
+    if (i < tokens.length && y + minH > bottom){
+      y = pdfFlowNewPage(doc, pageTitle, pageSub, sectionTitle, true);
+    }
+  }
+
+  return y;
+}
+
+
 function pdfSignature(doc, y){
   const C = pdfColors();
   y = pdfEnsure(doc, y, 140, "Resumen", ""); // por si queda corto
@@ -3324,62 +3497,70 @@ function pdfSignature(doc, y){
   return y + 120;
 }
 
+
 async function exportPdfClin(){
   const st = getMergedState();
   const extras = window.__extras || ExtrasDefault();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:"pt", format:"a4"});
-   await ensurePdfAssets();
+  await ensurePdfAssets();
 
   const name = st?.id?.nombre || "—";
   const rut  = st?.id?.rut || "—";
   const date = st?.id?.fecha || "—";
 
   const title = "Resumen clínico · Piso pélvico";
-  const sub = `Usuaria: ${name} · Rut: ${rut} · Fecha: ${date} · Modo: ${MODE==="full"?"Completo":"10 min"}`;
+  const sub = `Usuaria: ${name} · Rut: ${rut} · Fecha: ${date} · ${modeLinePdf()}`;
 
   let y = pdfNewPage(doc, title, sub);
 
-  // Panel exportable: clasificación + qué se ocultó + gráfico (canvas)
+  /* ========= Resumen rápido ========= */
   y = pdfSection(doc, y, "Resumen rápido");
-  y = pdfEnsure(doc, y, 190, title, sub);
+  y = pdfEnsure(doc, y, 220, title, sub);
 
-    pdfBox(doc, 44, y, 507, 190);
-   
-   doc.setFont("helvetica","bold");
-   doc.setFontSize(12);
-   doc.setTextColor(16,32,36);
-   doc.text(`Clasificación sugerida: ${(st?.plan?.clasificacion || "").trim() || suggestedClassification(st)}`, 60, y+28);
-   
-   doc.setFont("helvetica","normal");
-   doc.setFontSize(11);
-   doc.text(String(modeLinePdf() || ""), 60, y+48);
-   
-   const scoresMini = domainScores(st);
-   pdfMiniProfile(doc, 60, y+78, scoresMini);
-   
-   y += 210;
+  pdfBox(doc, 44, y, 507, 200);
 
+  const C = pdfColors();
+  doc.setTextColor(...C.ink);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
 
-  // Datos de la usuaria
-  y = pdfSection(doc, y, "Datos de la usuaria");
-  y = pdfEnsure(doc, y, 150, title, sub);
-
-  pdfBox(doc, 44, y, 507, 110);
-
-  const line1 = `Nombre: ${name} · Edad: ${st?.id?.edad || "—"} · Rut: ${rut}`;
-  const line2 = `Embarazo (semanas): ${st?.ciclo?.embarazo_semanas || "—"} · Postparto (semanas): ${st?.ciclo?.postparto_semanas || "—"}`;
-  const line3 = `GSM: ${st?.ciclo?.gsm ? "Sí" : "No"}${st?.ciclo?.gsm_detalles ? " · "+st.ciclo.gsm_detalles : ""}`;
+  const clasifManual = String(st?.plan?.clasificacion || st?.plan?.clasificacion_manual || "").trim();
+  const clasif = clasifManual || suggestedClassification(st) || "—";
+  pdfDrawText(doc, `Clasificación sugerida: ${clasif}`, 60, y+28, 470, 16);
 
   doc.setFont("helvetica","normal");
-  doc.setFontSize(12);
-  doc.text(line1, 60, y+34);
-  doc.text(line2, 60, y+54);
-  doc.text(line3, 60, y+74, {maxWidth:470});
+  doc.setFontSize(11);
+  doc.text(String(modeLinePdf() || ""), 60, y+52);
 
-  y += 130;
+  pdfMiniProfile(doc, 60, y+82, domainScores(st));
+  y += 220;
 
-  // Síntomas y escalas
+  /* ========= Datos de la usuaria ========= */
+  y = pdfSection(doc, y, "Datos de la usuaria");
+
+  const edad = st?.id?.edad || "—";
+  const emb  = st?.ciclo?.embarazo_semanas || "—";
+  const pp   = st?.ciclo?.postparto_semanas || "—";
+  const gsm  = st?.ciclo?.gsm ? "Sí" : "No";
+
+  const motivo = String(st?.motivo?.motivo || "").trim() || "—";
+  const meta   = String(st?.motivo?.meta || "").trim() || "—";
+  const historia = String(st?.motivo?.historia || "").trim();
+
+  const datosTxt = [
+    `Nombre: ${name} · Edad: ${edad} · Rut: ${rut}`,
+    `Embarazo (semanas): ${emb} · Postparto (semanas): ${pp}`,
+    `GSM: ${gsm}`,
+    "",
+    `Motivo: ${motivo}`,
+    `Meta (en palabras de la usuaria): ${meta}`,
+    historia ? `Contexto: ${historia}` : ""
+  ].filter(Boolean).join("\n");
+
+  y = pdfBoxFlowText(doc, y, title, sub, "Datos de la usuaria", datosTxt, {minH:120});
+
+  /* ========= Síntomas y escalas ========= */
   y = pdfSection(doc, y, "Síntomas y escalas");
   y = pdfEnsure(doc, y, 220, title, sub);
 
@@ -3388,200 +3569,134 @@ async function exportPdfClin(){
     y = pdfScaleBar(doc, 44, y, s.name, s.v);
   });
 
-  // ICIQ / Marinoff
-  const iciqOn = !!st?.out?.iciq_aplicar;
-  if (iciqOn){
+  // ICIQ
+  if (!!st?.out?.iciq_aplicar){
     const score = Number(st?.out?.iciq_score);
-    doc.setFont("helvetica","bold");
-    doc.setFontSize(12);
-    doc.text(`Puntaje ICIQ-UI SF: ${Number.isFinite(score)?score:"—"}/21 (${iciqInterpret(score)})`, 44, y+10);
-    y += 28;
+    const txt = `Puntaje ICIQ-UI SF: ${Number.isFinite(score)?score:"—"}/21 (${Number.isFinite(score)?iciqInterpret(score):"—"})`;
+    y = pdfBoxFlowText(doc, y, title, sub, "Síntomas y escalas", txt, {minH:70});
   }
+
+  // Marinoff
   const mar = st?.m8?.marinoff;
-  if (mar!==undefined && String(mar).trim()!==""){
-    doc.setFont("helvetica","bold");
-    doc.setFontSize(12);
-    doc.text(`Escala de dispareunia de Marinoff: ${mar} (${marinoffExplain(Number(mar))})`, 44, y+10);
-    y += 28;
+  if (mar !== undefined && String(mar).trim() !== ""){
+    const mNum = Number(String(mar).replace(/\D/g,""));
+    const expl = Number.isFinite(mNum) ? marinoffExplain(mNum) : "—";
+    const txt = `Escala de dispareunia de Marinoff: ${String(mar).trim()} (${expl})`;
+    y = pdfBoxFlowText(doc, y, title, sub, "Síntomas y escalas", txt, {minH:70});
   }
 
   y += 6;
 
-  // Hipótesis generadas
-  y = pdfEnsure(doc, y, 220, title, sub);
+  /* ========= Hipótesis generadas ========= */
   y = pdfSection(doc, y, "Hipótesis generadas");
 
   const hyps = (extras.hypotheses||[]).filter(h=>h.active);
-  pdfBox(doc, 44, y, 507, Math.max(110, 26 + hyps.length*18));
+  const hypTxt = hyps.length ? hyps.map(h=>{
+    const parts = [];
+    parts.push(`${h.domain} · Prioridad: ${h.priority} · Confianza: ${h.confidence}`);
+    if (String(h.title||"").trim()) parts.push(`Título: ${h.title}`);
+    if (String(h.evidence||"").trim()) parts.push(`Evidencia/observación: ${h.evidence}`);
+    if (String(h.toConfirm||"").trim()) parts.push(`Qué buscar para confirmar: ${h.toConfirm}`);
+    if (String(h.interventions||"").trim()) parts.push(`Intervención sugerida: ${h.interventions}`);
+    if (String(h.notes||"").trim()) parts.push(`Notas: ${h.notes}`);
+    return parts.join("\n");
+  }).join("\n\n") : "Sin hipótesis activas.";
 
-  let yy = y + 26;
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(12);
+  y = pdfBoxFlowText(doc, y, title, sub, "Hipótesis generadas", hypTxt, {minH:160});
 
-  if (!hyps.length){
-    doc.text("Sin hipótesis activas.", 60, yy);
-    yy += 18;
-  } else {
-    hyps.forEach(h=>{
-      doc.setFont("helvetica","bold");
-      doc.text(`${h.domain} · Prioridad ${h.priority} · Confianza ${h.confidence}`, 60, yy);
-      yy += 16;
-      doc.setFont("helvetica","normal");
-      const lines = doc.splitTextToSize(h.title, 470);
-      doc.text(lines, 60, yy);
-      yy += lines.length*16 + 6;
-    });
-  }
+  /* ========= Plan de ejercicios ========= */
+  y = pdfSection(doc, y, "Plan de ejercicios");
 
-  y = y + Math.max(130, 34 + hyps.length*38);
+  const exSel = (extras.exercisePlan?.selectedIds||[])
+    .map(id=>EXERCISES.find(e=>e.id===id))
+    .filter(Boolean);
 
-  // Plan de ejercicios (wrap real + sin "•")
-y = pdfEnsure(doc, y, 260, title, sub);
-y = pdfSection(doc, y, "Plan de ejercicios");
+  const exItems = exSel.length
+    ? exSel.map(e=>{
+        const dose = String((e._dose || e.dose || "")).trim() || "—";
+        return `${e.name}\nDosificación: ${dose}`;
+      })
+    : ["Sin ejercicios seleccionados."];
 
-const exSel = (extras.exercisePlan?.selectedIds||[])
-  .map(id=>EXERCISES.find(e=>e.id===id))
-  .filter(Boolean);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Plan de ejercicios", exItems, {minH:140});
 
-const exNeed = exSel.length
-  ? exSel.reduce((acc, e)=>{
-      const dose = String((e._dose || e.dose || "")).trim() || "—";
-      const nameH = pdfSplit(doc, `- ${e.name}`, 470).length * 16;
-      const doseH = pdfSplit(doc, `Dosificación: ${dose}`, 455).length * 14;
-      return acc + nameH + doseH + 10;
-    }, 0)
-  : 18;
+  /* ========= Tareas ========= */
+  y = pdfSection(doc, y, "Tareas para casa");
 
-const exBoxH = Math.max(120, 26 + exNeed + 12);
-pdfBox(doc, 44, y, 507, exBoxH);
+  const tU = (extras.tasks?.usuaria||[]).filter(t=>String(t?.title||"").trim()!=="");
+  const itemsU = tU.length ? tU.map(t=>{
+    const meta = [
+      String(t.title).trim(),
+      t.priority ? `Prioridad: ${t.priority}` : "",
+      t.due ? `Plazo: ${t.due}` : ""
+    ].filter(Boolean).join(" · ");
+    const det = String(t.details||"").trim();
+    return det ? `${meta}\nDetalles: ${det}` : meta;
+  }) : ["Sin tareas para casa."];
 
-let yy = y + 26;
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Tareas para casa", itemsU, {minH:140});
 
-if (!exSel.length){
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(12);
-  yy = pdfDrawText(doc, "Sin ejercicios seleccionados.", 60, yy, 470, 16) + 6;
-} else {
-  exSel.forEach(e=>{
-    const dose = String((e._dose || e.dose || "")).trim() || "—";
-
-    doc.setFont("helvetica","bold");
-    doc.setFontSize(12);
-    yy = pdfDrawText(doc, `- ${e.name}`, 60, yy, 470, 16);
-
-    doc.setFont("helvetica","normal");
-    doc.setFontSize(11);
-    yy = pdfDrawText(doc, `Dosificación: ${dose}`, 78, yy, 455, 14) + 6;
-
-    doc.setFontSize(12);
-  });
-}
-
-y = y + exBoxH + 20;
-
-  // Tareas para casa + tareas para la kinesióloga
-  y = pdfEnsure(doc, y, 260, title, sub);
-  y = pdfEnsure(doc, y, 320, title, sub);
-   y = pdfSection(doc, y, "Tareas para casa");
-   
-   const tU = (extras.tasks?.usuaria||[]).slice(0,10).map(t=>String(t.title||"").trim()).filter(Boolean);
-   
-   const tUneed = pdfListHeight(doc, tU, 450, 16, 6);
-   const tUboxH = Math.max(120, 26 + tUneed + 12);
-   
-   pdfBox(doc, 44, y, 507, tUboxH);
-   let yy = y + 26;
-   
-   doc.setFont("helvetica","normal");
-   doc.setFontSize(12);
-   
-   if (!tU.length){
-     yy = pdfDrawText(doc, "Sin tareas para casa.", 60, yy, 470, 16) + 6;
-   } else {
-     tU.forEach(titleLine=>{
-       yy = pdfDrawCheckboxText(doc, 60, yy, titleLine, 450, 16);
-     });
-   }
-   
-   y = y + tUboxH + 20;
-
-
-  y = pdfEnsure(doc, y, 220, title, sub);
   y = pdfSection(doc, y, "Tareas para la kinesióloga");
 
-  pdfBox(doc, 44, y, 507, Math.max(110, 26 + Math.min(8,tK.length)*22));
-  yy = y + 26;
+  const tK = (extras.tasks?.kine||[]).filter(t=>String(t?.title||"").trim()!=="");
+  const itemsK = tK.length ? tK.map(t=>{
+    const meta = [
+      String(t.title).trim(),
+      t.priority ? `Prioridad: ${t.priority}` : "",
+      t.due ? `Plazo: ${t.due}` : ""
+    ].filter(Boolean).join(" · ");
+    const det = String(t.details||"").trim();
+    return det ? `${meta}\nDetalles: ${det}` : meta;
+  }) : ["Sin tareas para la kinesióloga."];
 
-  if (!tK.length){
-    doc.text("Sin tareas para la kinesióloga.", 60, yy);
-    yy += 18;
- } else {
-  const lines = tK.slice(0,8).map(t=>`- ${t.title} (Prioridad: ${t.priority})`);
-  // caja más alta según wrap real
-  const need = pdfListHeight(doc, lines, 470, 16, 4);
-  const boxH = Math.max(110, 26 + need + 12);
-  // IMPORTANTÍSIMO: redibuja la caja con altura correcta
-  pdfBox(doc, 44, y, 507, boxH);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Tareas para la kinesióloga", itemsK, {minH:140});
 
-  yy = y + 26;
-  lines.forEach(line=>{
-    yy = pdfDrawText(doc, line, 60, yy, 470, 16) + 2;
-  });
-
-  y = y + boxH + 20;
-  // y NO debe volver a sumar el Math.max viejo
-  // así que SALTA el y = y + Math.max(...) original para este bloque
-  // (borra esa línea si la tienes justo después)
-}
-
-  // Próxima sesión
-  y = pdfEnsure(doc, y, 220, title, sub);
+  /* ========= Próxima sesión ========= */
   y = pdfSection(doc, y, "Próxima sesión");
 
-  const ns = extras.nextSession || [];
-  pdfBox(doc, 44, y, 507, Math.max(110, 26 + Math.min(8,ns.length)*22));
-  yy = y + 26;
+  const ns = (extras.nextSession||[]).filter(n=>String(n?.text||"").trim()!=="");
+  const itemsNS = ns.length ? ns.map(n=>{
+    const meta = n.priority ? `Prioridad: ${n.priority}` : "";
+    const base = meta ? `${n.text} (${meta})` : String(n.text);
+    const notes = String(n.notes||"").trim();
+    return notes ? `${base}\nNotas: ${notes}` : base;
+  }) : ["Sin ítems definidos."];
 
-  if (!ns.length){
-    doc.text("Sin ítems definidos.", 60, yy);
-    yy += 18;
-  } else {
-    ns.slice(0,8).forEach(n=>{
-      doc.text(`- ${n.text} (Prioridad: ${n.priority})`, 60, yy, {maxWidth:470});
-      yy += 18;
-    });
-  }
-  y = y + Math.max(130, 34 + Math.min(8,ns.length)*22);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Próxima sesión", itemsNS, {minH:140});
 
-  // Señales para avisar (caja destacada)
+  /* ========= Señales para avisar ========= */
   y = pdfEnsure(doc, y, 190, title, sub);
   y = pdfSection(doc, y, "Señales para avisar");
 
-  pdfBox(doc, 44, y, 507, 110);
-  doc.setTextColor(...pdfColors().terra);
-  doc.setFont("helvetica","bold");
+  const alertBoxH = 110;
+  if (y + alertBoxH > 820) y = pdfFlowNewPage(doc, title, sub, "Señales para avisar", true);
+
+  pdfBox(doc, 44, y, 507, alertBoxH);
   pdfAlertIcon(doc, 66, y+30);
-  doc.setTextColor(...pdfColors().ink);
+
+  doc.setTextColor(...C.ink);
   doc.setFont("helvetica","normal");
   doc.setFontSize(12);
-  doc.text(
-    "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo o síntomas neurológicos nuevos.",
-    78, y+30, {maxWidth:455}
-  );
-  y += 130;
 
-  // Firma
+  const alertTxt = "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor pélvico agudo severo nuevo o síntomas neurológicos nuevos.";
+  pdfDrawText(doc, alertTxt, 78, y+34, 455, 16);
+
+  y += alertBoxH + 20;
+
+  /* ========= Firma ========= */
   pdfSignature(doc, y);
 
   doc.save(fileBaseName(st) + "_clinico.pdf");
 }
+
+
 
 async function exportPdfUsuaria(){
   const st = getMergedState();
   const extras = window.__extras || ExtrasDefault();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:"pt", format:"a4"});
-   await ensurePdfAssets();
+  await ensurePdfAssets();
 
   const name = st?.id?.nombre || "—";
   const date = st?.id?.fecha || "—";
@@ -3591,112 +3706,88 @@ async function exportPdfUsuaria(){
 
   let y = pdfNewPage(doc, title, sub);
 
+  /* ========= Qué trabajamos hoy ========= */
   y = pdfSection(doc, y, "Qué trabajamos hoy");
-  y = pdfEnsure(doc, y, 130, title, sub);
-
-   
-
-  pdfBox(doc, 44, y, 507, 96);
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(12);
 
   const hypsRaw = (extras.hypotheses||[])
-  .filter(h=>h.active)
-  .slice(0,4)
-  .map(h=>String(translateHypothesisForUsuaria(h.title) || "").trim())
-  .filter(Boolean);
+    .filter(h=>h.active)
+    .slice(0,4)
+    .map(h=>String(translateHypothesisForUsuaria(h.title) || "").trim())
+    .filter(Boolean);
 
-// elimina repetidas (evita “frases iguales” dos veces)
-const hyps = Array.from(new Set(hypsRaw));
+  const hyps = Array.from(new Set(hypsRaw));
+  const line = hyps.length
+    ? hyps.join(" ")
+    : String(st?.plan?.clasificacion || "").trim() || "Hoy trabajamos en comprender tus síntomas y definir un plan seguro y progresivo.";
 
-const line = hyps.length
-  ? hyps.join(" ")
-  : String((st?.plan?.clasificacion || "")).trim() || "Hoy trabajamos en comprender tus síntomas y definir un plan seguro y progresivo.";
-  doc.text(line, 60, y+34, {maxWidth:470});
-  y += 120;
+  y = pdfBoxFlowText(doc, y, title, sub, "Qué trabajamos hoy", line, {minH:110});
 
+  /* ========= Tu plan en casa ========= */
   y = pdfSection(doc, y, "Tu plan en casa");
-  y = pdfEnsure(doc, y, 220, title, sub);
 
-  const exSel = (extras.exercisePlan?.selectedIds||[]).map(id=>EXERCISES.find(e=>e.id===id)).filter(Boolean).slice(0,7);
+  const exSel = (extras.exercisePlan?.selectedIds||[])
+    .map(id=>EXERCISES.find(e=>e.id===id))
+    .filter(Boolean)
+    .slice(0,7);
 
-  pdfBox(doc, 44, y, 507, Math.max(120, 26 + exSel.length*30));
-  let yy = y + 26;
+  const exItems = exSel.length
+    ? exSel.map(e=>{
+        const dose = String((e._dose || e.dose || "")).trim() || "—";
+        return `${e.name}\nDosificación: ${dose}`;
+      })
+    : ["No hay ejercicios seleccionados aún. La kinesióloga los agregará según tu evaluación."];
 
-  if (!exSel.length){
-    doc.text("No hay ejercicios seleccionados aún. La kinesióloga los agregará según tu evaluación.", 60, yy, {maxWidth:470});
-    yy += 18;
-  } else {
-    exSel.forEach(e=>{
-      pdfCheckbox(doc, 60, yy);
-      doc.text(`${e.name}`, 78, yy, {maxWidth:450});
-      yy += 16;
-      doc.setFont("helvetica","normal");
-      doc.setFontSize(11);
-      const dose = (e._dose || e.dose || "").trim();
-      doc.text(dose ? `Dosificación: ${dose}` : "Dosificación: —", 78, yy, {maxWidth:450});
-      doc.setFontSize(12);
-      yy += 18;
-    });
-  }
-  y = y + Math.max(140, 34 + exSel.length*32);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Tu plan en casa", exItems, {minH:140});
 
-  y = pdfEnsure(doc, y, 220, title, sub);
-  y = pdfSection(doc, y, "Tareas");
+  /* ========= Tareas para casa ========= */
+  y = pdfSection(doc, y, "Tareas para casa");
 
-  const tU = (extras.tasks?.usuaria||[]).slice(0,10);
-  pdfBox(doc, 44, y, 507, Math.max(110, 26 + tU.length*22));
-  yy = y + 26;
+  const tU = (extras.tasks?.usuaria||[]).filter(t=>String(t?.title||"").trim()!=="");
+  const itemsU = tU.length ? tU.map(t=>{
+    const meta = [
+      String(t.title).trim(),
+      t.due ? `Plazo: ${t.due}` : ""
+    ].filter(Boolean).join(" · ");
+    return meta;
+  }) : ["Sin tareas definidas."];
 
-  if (!tU.length){
-    doc.text("Sin tareas definidas por ahora.", 60, yy);
-    yy += 18;
-  } else {
-    tU.forEach(t=>{
-      pdfCheckbox(doc, 60, yy);
-      doc.text(t.title, 78, yy, {maxWidth:450});
-      yy += 20;
-    });
-  }
-  y = y + Math.max(130, 34 + tU.length*22);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Tareas para casa", itemsU, {minH:120});
 
-  y = pdfEnsure(doc, y, 190, title, sub);
-  y = pdfSection(doc, y, "Qué revisaremos la próxima sesión");
+  /* ========= Próxima sesión ========= */
+  y = pdfSection(doc, y, "Próxima sesión");
 
-  const ns = (extras.nextSession||[]).slice(0,6);
-  pdfBox(doc, 44, y, 507, Math.max(110, 26 + ns.length*22));
-  yy = y + 26;
+  const ns = (extras.nextSession||[]).filter(n=>String(n?.text||"").trim()!=="").slice(0,7);
+  const itemsNS = ns.length ? ns.map(n=> String(n.text).trim()) : ["Sin ítems definidos."];
 
-  if (!ns.length){
-    doc.text("La próxima sesión revisaremos tu progreso y ajustaremos el plan.", 60, yy, {maxWidth:470});
-    yy += 18;
-  } else {
-    ns.forEach(n=>{
-      doc.text(`• ${n.text}`, 60, yy, {maxWidth:470});
-      yy += 18;
-    });
-  }
-  y = y + Math.max(130, 34 + ns.length*22);
+  y = pdfBoxFlowChecklist(doc, y, title, sub, "Próxima sesión", itemsNS, {minH:120});
 
+  /* ========= Señales para avisar ========= */
   y = pdfEnsure(doc, y, 190, title, sub);
   y = pdfSection(doc, y, "Señales para avisar");
 
-  pdfBox(doc, 44, y, 507, 110);
-  doc.setTextColor(...pdfColors().terra);
-  doc.setFont("helvetica","bold");
+  const C = pdfColors();
+  const alertBoxH = 110;
+
+  if (y + alertBoxH > 820) y = pdfFlowNewPage(doc, title, sub, "Señales para avisar", true);
+
+  pdfBox(doc, 44, y, 507, alertBoxH);
   pdfAlertIcon(doc, 66, y+30);
-  doc.setTextColor(...pdfColors().ink);
+
+  doc.setTextColor(...C.ink);
   doc.setFont("helvetica","normal");
   doc.setFontSize(12);
-  doc.text(
-    "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor agudo severo nuevo o síntomas neurológicos nuevos.",
-    78, y+30, {maxWidth:455}
-  );
-  y += 130;
 
+  const alertTxt = "Avisar/consultar si aparece: fiebre + dolor pélvico o urinario, hematuria visible, retención urinaria, sangrado anormal importante, dolor pélvico agudo severo nuevo o síntomas neurológicos nuevos.";
+  pdfDrawText(doc, alertTxt, 78, y+34, 455, 16);
+
+  y += alertBoxH + 20;
+
+  /* ========= Firma ========= */
   pdfSignature(doc, y);
+
   doc.save(fileBaseName(st) + "_usuaria.pdf");
 }
+
 
 
 function flatten(obj){
