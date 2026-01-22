@@ -3133,10 +3133,17 @@ function pdfNewPage(doc, title, subtitle){
   doc.setFontSize(18);
   doc.text(String(title || ""), 44, 58);
 
-  // subtítulo
+  // subtítulo: ancho limitado para NO pasar debajo de foto/logo
   doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
-  doc.text(String(subtitle || ""), 44, 84);
+
+  const sub = String(subtitle || "");
+  let subLines = doc.splitTextToSize(sub, 360); // deja espacio para las imágenes
+  if (subLines.length > 2){
+    subLines = subLines.slice(0, 2);
+    subLines[1] = String(subLines[1]).slice(0, Math.max(0, String(subLines[1]).length - 1)) + "…";
+  }
+  doc.text(subLines, 44, 84);
 
   // logo + foto (si existen)
   const A = window.__pdfAssets || {};
@@ -3160,8 +3167,9 @@ function pdfNewPage(doc, title, subtitle){
     }
   } catch {}
 
-  return 130; // <-- ESTO es lo que te falta y por eso se rompe
+  return 130;
 }
+
 
 
 function pdfSection(doc, y, title){
@@ -3466,35 +3474,106 @@ function pdfBoxFlowChecklist(doc, y, pageTitle, pageSub, sectionTitle, items, op
 }
 
 
-function pdfSignature(doc, y){
+function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   const C = pdfColors();
-  y = pdfEnsure(doc, y, 140, "Resumen", ""); // por si queda corto
 
-  // separador
+  const boxH = 118;
+  const bottomMargin = 34;
+  const yBox = 842 - bottomMargin - boxH;
+
+  // si no cabe en esta página, crea una nueva
+  if (Number(currentY || 0) > (yBox - 20)){
+    doc.addPage();
+    pdfNewPage(doc, pageTitle, pageSub);
+  }
+
+  // separador suave
   doc.setDrawColor(...C.sand);
   doc.setLineWidth(1);
-  doc.line(44, y, 551, y);
+  doc.line(44, yBox-10, 551, yBox-10);
 
-  y += 18;
-  pdfBox(doc, 44, y, 507, 100);
+  // caja
+  pdfBox(doc, 44, yBox, 507, boxH);
 
+  // texto profesional
   doc.setTextColor(...C.ink);
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
-  doc.text("Profesional", 60, y+26);
+  doc.text("Profesional", 60, yBox+26);
 
   doc.setFont("helvetica","normal");
   doc.setFontSize(11);
-  doc.text(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, 60, y+46);
-  doc.text(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, 60, y+64);
-  doc.text(`${PROVIDER.correo} · ${PROVIDER.instagram}`, 60, y+82);
+  doc.text(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, 60, yBox+46);
+  doc.text(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, 60, yBox+64);
+  doc.text(`${PROVIDER.correo} · ${PROVIDER.instagram}`, 60, yBox+82);
 
+  // firma (DENTRO del recuadro, bien abajo)
+  const ySign = yBox + boxH - 18;
   doc.setFont("helvetica","bold");
-  doc.text("Firma:", 60, y+102);
+  doc.text("Firma:", 60, ySign);
   doc.setFont("helvetica","normal");
-  doc.text("______________________________", 110, y+102);
+  doc.text("______________________________", 110, ySign);
 
-  return y + 120;
+  // foto redonda a la derecha (si existe)
+  try{
+    const A = window.__pdfAssets || {};
+    if (A.ferRound){
+      const size = 56;
+      const xImg = 551 - 16 - size;
+      const yImg = yBox + 34;
+
+      doc.setDrawColor(...C.sand);
+      doc.setLineWidth(1);
+      doc.circle(xImg + size/2, yImg + size/2, (size/2) + 1, "S");
+      doc.addImage(A.ferRound, "PNG", xImg, yImg, size, size);
+    }
+  } catch {}
+}
+
+
+// Limpia "evidencia" para PDF (evita exportar claves internas tipo m8.xxx: 6)
+function sanitizeEvidenceForPdf(raw){
+  const MAP = {
+    "m8.urinario_esfuerzo_0_10": "Molestia: pérdida de orina con esfuerzo (0–10)",
+    "m8.urinario_urgencia_0_10": "Molestia: urgencia urinaria (0–10)",
+    "m8.urinario_sin_causa_0_10": "Molestia: pérdida de orina sin causa aparente (0–10)",
+    "m9.frecuencia_dia": "Frecuencia urinaria (veces/día)",
+    "m9.nicturia_noche": "Nicturia (veces/noche)",
+    "m9.iciq_score": "Puntaje ICIQ-UI SF (0–21)",
+    "m9.incontinencia_tipo": "Tipo de incontinencia",
+    "m9.incontinencia_situaciones": "Situaciones de escape",
+    "ciclo.postparto_semanas": "Postparto (semanas)",
+    "ciclo.embarazo_semanas": "Embarazo (semanas)"
+  };
+
+  const out = [];
+  String(raw || "").split("\n").forEach(line=>{
+    const s = String(line || "").trim();
+    if (!s) return;
+
+    const parts = s.split(":");
+    if (parts.length >= 2){
+      const k = parts.shift().trim();
+      let v = parts.join(":").trim();
+
+      if (v === "true") v = "Sí";
+      if (v === "false") v = "No";
+
+      if (MAP[k]){
+        out.push(`${MAP[k]}: ${v}`);
+        return;
+      }
+
+      // si es clave interna y no está en el mapa, NO la exportamos
+      if (/^(m8|m9|me|ciclo|int|cons|go|medicion|motivo|perfil)\./.test(k)){
+        return;
+      }
+    }
+
+    out.push(s);
+  });
+
+  return out.join("\n");
 }
 
 
@@ -3551,7 +3630,7 @@ async function exportPdfClin(){
   const datosTxt = [
     `Nombre: ${name} · Edad: ${edad} · Rut: ${rut}`,
     `Embarazo (semanas): ${emb} · Postparto (semanas): ${pp}`,
-    `GSM: ${gsm}`,
+    `Síntomas vaginales/urinarios asociados a menopausia (GSM): ${gsm}`,
     "",
     `Motivo: ${motivo}`,
     `Meta (en palabras de la usuaria): ${meta}`,
@@ -3588,19 +3667,26 @@ async function exportPdfClin(){
   y += 6;
 
   /* ========= Hipótesis generadas ========= */
-  y = pdfSection(doc, y, "Hipótesis generadas");
+y = pdfSection(doc, y, "Hipótesis generadas");
 
-  const hyps = (extras.hypotheses||[]).filter(h=>h.active);
-  const hypTxt = hyps.length ? hyps.map(h=>{
-    const parts = [];
-    parts.push(`${h.domain} · Prioridad: ${h.priority} · Confianza: ${h.confidence}`);
-    if (String(h.title||"").trim()) parts.push(`Título: ${h.title}`);
-    if (String(h.evidence||"").trim()) parts.push(`Evidencia/observación: ${h.evidence}`);
-    if (String(h.toConfirm||"").trim()) parts.push(`Qué buscar para confirmar: ${h.toConfirm}`);
-    if (String(h.interventions||"").trim()) parts.push(`Intervención sugerida: ${h.interventions}`);
-    if (String(h.notes||"").trim()) parts.push(`Notas: ${h.notes}`);
-    return parts.join("\n");
-  }).join("\n\n") : "Sin hipótesis activas.";
+const hyps = (extras.hypotheses||[]).filter(h=>h.active);
+const hypTxt = hyps.length ? hyps.map(h=>{
+  const parts = [];
+  parts.push(`${h.domain} · Prioridad: ${h.priority} · Confianza: ${h.confidence}`);
+
+  if (String(h.title||"").trim()) parts.push(`Título: ${h.title}`);
+
+  // ✅ AQUÍ está el cambio: limpia evidencia para no exportar m8.xxx / m9.xxx
+  const ev = sanitizeEvidenceForPdf(h.evidence);
+  if (String(ev||"").trim()) parts.push(`Evidencia/observación: ${ev}`);
+
+  if (String(h.toConfirm||"").trim()) parts.push(`Qué buscar para confirmar: ${h.toConfirm}`);
+  if (String(h.interventions||"").trim()) parts.push(`Intervención sugerida: ${h.interventions}`);
+  if (String(h.notes||"").trim()) parts.push(`Notas: ${h.notes}`);
+
+  return parts.join("\n");
+}).join("\n\n") : "Sin hipótesis activas.";
+
 
   y = pdfBoxFlowText(doc, y, title, sub, "Hipótesis generadas", hypTxt, {minH:160});
 
@@ -3684,7 +3770,7 @@ async function exportPdfClin(){
   y += alertBoxH + 20;
 
   /* ========= Firma ========= */
-  pdfSignature(doc, y);
+  pdfSignatureBottom(doc, y, title, sub);
 
   doc.save(fileBaseName(st) + "_clinico.pdf");
 }
@@ -3783,7 +3869,7 @@ async function exportPdfUsuaria(){
   y += alertBoxH + 20;
 
   /* ========= Firma ========= */
-  pdfSignature(doc, y);
+  pdfSignatureBottom(doc, y, title, sub);
 
   doc.save(fileBaseName(st) + "_usuaria.pdf");
 }
