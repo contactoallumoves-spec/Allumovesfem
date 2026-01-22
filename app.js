@@ -2860,6 +2860,60 @@ function exportJSON(){
   URL.revokeObjectURL(a.href);
 }
 
+function syncModeUI(){
+  const btn10 = $("#btnMode10");
+  const btnFull = $("#btnModeFull");
+  if (!btn10 || !btnFull) return;
+
+  btn10.classList.toggle("active", MODE==="10");
+  btnFull.classList.toggle("active", MODE==="full");
+
+  btn10.setAttribute("aria-pressed", MODE==="10" ? "true" : "false");
+  btnFull.setAttribute("aria-pressed", MODE==="full" ? "true" : "false");
+
+  const pill = $("#pillMode");
+  if (pill) pill.textContent = `Modo actual: ${MODE==="full" ? "Completo" : "10 min"}`;
+}
+
+function syncMusculoEsqUI(){
+  const btn = $("#btnMsk");
+  if (!btn) return;
+  const on = !!(window.__extras?.settings?.musculoEsqOn);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.textContent = on ? "Músculo-esquelético: ON" : "Músculo-esquelético: OFF";
+}
+
+function importBackupObject(obj){
+  if (!obj || typeof obj !== "object") throw new Error("JSON inválido");
+
+  // Base
+  const base = JSON.parse(JSON.stringify(obj));
+  const extras = base.__extras ? base.__extras : null;
+  delete base.__extras;
+
+  // Guardar
+  saveBaseState(base);
+  if (extras){
+    localStorage.setItem(EXTRAS_KEY, JSON.stringify(extras));
+  }
+
+  // Aplicar en runtime
+  window.__extras = loadExtras();
+  MODE = (base?._meta?.mode === "full") ? "full" : "10";
+  syncModeUI();
+  syncMusculoEsqUI();
+
+  renderForm(window.__extras);
+  toast("Respaldo cargado");
+}
+
+async function importBackupFromFile(file){
+  const text = await file.text();
+  const obj = JSON.parse(text);
+  importBackupObject(obj);
+}
+
+
 function nonEmptyRows(rows){
   return (rows || []).filter(([a,b])=>{
     const aa = String(a ?? "").trim();
