@@ -3322,7 +3322,7 @@ async function exportPdfClin(){
    
    doc.setFont("helvetica","normal");
    doc.setFontSize(11);
-   doc.text(modeLinePdf(), 60, yy+40, {maxWidth:470});
+   doc.text(String(modeLinePdf() || ""), 60, y+48);
    
    const scoresMini = domainScores(st);
    pdfMiniProfile(doc, 60, y+78, scoresMini);
