@@ -683,22 +683,13 @@ function clearAll(){
 
 function modeHiddenLine(){
   const extras = window.__extras || ExtrasDefault();
+  if (MODE === "full") return "Vista completa activada.";
 
-  if (MODE === "full"){
-    return "Nada oculto: vista completa activada.";
-  }
+  const me = extras.settings.musculoEsqOn
+    ? "Músculo-esquelético: ON (screening)"
+    : "Músculo-esquelético: OFF";
 
-  const hidden = [];
-  hidden.push("Campos avanzados (detalles extra y re-evaluación).");
-  hidden.push("Biblioteca completa de ejercicios (usa “Mostrar más ejercicios”).");
-
-  if (!extras.settings.musculoEsqOn){
-    hidden.push("Módulo músculo-esquelético: OFF.");
-  } else {
-    hidden.push("Detalles avanzados del módulo músculo-esquelético se revisan mejor en modo completo.");
-  }
-
-  return "Oculto en 10 min: " + hidden.join(" ");
+  return `Modo 10 min: se muestra lo esencial. ${me}`;
 }
 
 function setMode(mode, rerender=true){
@@ -3026,14 +3017,53 @@ async function fetchAsDataURL(url){
   });
 }
 
+function loadImg(dataUrl){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    img.onload = ()=> resolve(img);
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function circleCropDataURL(dataUrl, size=256){
+  const img = await loadImg(dataUrl);
+  const c = document.createElement("canvas");
+  c.width = size; c.height = size;
+  const ctx = c.getContext("2d");
+
+  ctx.clearRect(0,0,size,size);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size/2, 0, Math.PI*2);
+  ctx.closePath();
+  ctx.clip();
+
+  // cover
+  const scale = Math.max(size/img.width, size/img.height);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  ctx.drawImage(img, (size-w)/2, (size-h)/2, w, h);
+
+  ctx.restore();
+  return c.toDataURL("image/png");
+}
+
+
 async function ensurePdfAssets(){
   if (window.__pdfAssets) return window.__pdfAssets;
   const out = {};
   try { out.logo = await fetchAsDataURL(PDF_ASSET_FILES.logo); } catch {}
-  try { out.fer  = await fetchAsDataURL(PDF_ASSET_FILES.fer); } catch {}
+
+  try {
+    out.fer = await fetchAsDataURL(PDF_ASSET_FILES.fer);
+    out.ferRound = await circleCropDataURL(out.fer, 256); // <- NUEVO
+  } catch {}
+
   window.__pdfAssets = out;
   return out;
 }
+
 
 // icono de alerta (evita el emoji ⚠ que se vuelve "&")
 function pdfAlertIcon(doc, x, y){
@@ -3107,15 +3137,30 @@ function pdfNewPage(doc, title, subtitle){
   doc.text(subtitle, 44, 84);
 
   // logo + foto (si existen)
-   const A = window.__pdfAssets || {};
-   try{
-     if (A.logo) doc.addImage(A.logo, dataUrlFmt(A.logo), 495, 38, 48, 48);
-   } catch {}
-   try{
-     if (A.fer)  doc.addImage(A.fer,  dataUrlFmt(A.fer), 440, 38, 48, 48);
-   } catch {}
+const A = window.__pdfAssets || {};
+try{
+  if (A.logo){
+    // aro suave
+    doc.setDrawColor(...C.sand);
+    doc.setLineWidth(1);
+    doc.circle(519, 62, 26, "S");
+    doc.addImage(A.logo, dataUrlFmt(A.logo), 495, 38, 48, 48);
+  }
+} catch {}
 
-  return 130; // y inicial
+try{
+  if (A.ferRound){
+    doc.setDrawColor(...C.sand);
+    doc.setLineWidth(1);
+    doc.circle(464, 62, 26, "S");
+    doc.addImage(A.ferRound, dataUrlFmt(A.ferRound), 440, 38, 48, 48);
+  } else if (A.fer){
+    doc.setDrawColor(...C.sand);
+    doc.setLineWidth(1);
+    doc.circle(464, 62, 26, "S");
+    doc.addImage(A.fer, dataUrlFmt(A.fer), 440, 38, 48, 48);
+  }
+} catch {}
 }
 
 function pdfSection(doc, y, title){
@@ -3165,7 +3210,7 @@ function pdfBullets(doc, x, y, lines, maxW){
     const parts = doc.splitTextToSize(String(line), maxW);
     // bullet
     doc.setTextColor(...C.terra);
-    doc.text("•", x, yy);
+    doc.text("-", x, yy);
     doc.setTextColor(...C.ink);
     doc.text(parts, x+10, yy);
     yy += parts.length * 16;
@@ -3268,7 +3313,7 @@ async function exportPdfClin(){
    
    doc.setFont("helvetica","normal");
    doc.setFontSize(11);
-   doc.text(modeLinePdf(), 60, y+48);
+   doc.text(modeLinePdf(), 60, yy+40, {maxWidth:470});
    
    const scoresMini = domainScores(st);
    pdfMiniProfile(doc, 60, y+78, scoresMini);
@@ -3427,7 +3472,7 @@ async function exportPdfClin(){
     yy += 18;
   } else {
     ns.slice(0,8).forEach(n=>{
-      doc.text(`• ${n.text} (Prioridad: ${n.priority})`, 60, yy, {maxWidth:470});
+      doc.text(`- ${n.text} (Prioridad: ${n.priority})`, 60, yy, {maxWidth:470});
       yy += 18;
     });
   }
@@ -3696,6 +3741,26 @@ function init(){
   $("#btnPdfUsuaria").addEventListener("click", exportPdfUsuaria);
   $("#btnXlsx").addEventListener("click", exportXlsx);
   $("#btnJson").addEventListener("click", exportJSON);
+
+   // Cargar respaldo (JSON)
+const btnLoad = $("#btnJsonLoad");
+const jsonFile = $("#jsonFile");
+if (btnLoad && jsonFile){
+  btnLoad.addEventListener("click", ()=> jsonFile.click());
+  jsonFile.addEventListener("change", async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try{
+      await importBackupFromFile(file);
+    } catch(err){
+      console.error(err);
+      toast("No se pudo cargar el JSON (formato inválido)");
+    } finally {
+      jsonFile.value = ""; // permite cargar el mismo archivo de nuevo
+    }
+  });
+}
+
 
   $("#btnClear").addEventListener("click", ()=>{
     if (confirm("¿Borrar toda la ficha? (incluye motor)")) clearAll();
