@@ -3477,7 +3477,7 @@ function pdfBoxFlowChecklist(doc, y, pageTitle, pageSub, sectionTitle, items, op
 function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   const C = pdfColors();
 
-  const boxH = 140;
+  const boxH = 150;          // ↑ un poco más alto para dar aire
   const bottomMargin = 34;
   const yBox = 842 - bottomMargin - boxH;
 
@@ -3501,34 +3501,40 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   doc.setFontSize(12);
   doc.text("Profesional", 60, yBox+26);
 
-  // ===== TEXTO PROFESIONAL (dinámico para que NO se acople) =====
+  // ===== Reserva para firma (deja espacio sí o sí) =====
+  const signBlockH = 44;                 // espacio reservado para firma
+  const signTopY = yBox + boxH - signBlockH;  // inicio del bloque firma
+
+  // ===== TEXTO PROFESIONAL (dinámico, sin invadir foto ni firma) =====
   const textMaxW = 360; // deja espacio a la derecha para la foto
 
-  // 1) Nombre + cargo (puede ocupar 1–2 líneas)
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
 
+  // 1) Nombre + cargo (puede ocupar 1–2 líneas)
   const line1 = doc.splitTextToSize(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, textMaxW);
   doc.text(line1, 60, yBox + 46);
 
   // yyText = dónde terminó line1
   let yyText = (yBox + 46) + (line1.length * 16);
 
-  // 2) RUT + registro (siempre debajo)
+  // 2) RUT + registro (debajo)
   const line2 = doc.splitTextToSize(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, textMaxW);
   doc.text(line2, 60, yyText + 8);
   yyText = (yyText + 8) + (line2.length * 16);
 
-  // 3) Correo + IG (debajo)
+  // 3) Correo + IG (debajo, pero NUNCA baja al bloque de firma)
   const line3 = doc.splitTextToSize(`${PROVIDER.correo} · ${PROVIDER.instagram}`, textMaxW);
-  doc.text(line3, 60, yyText + 10);
+  const yLine3 = Math.min(yyText + 10, signTopY - 6); // evita pegarse a la firma
+  doc.text(line3, 60, yLine3);
 
-  // ===== FIRMA (abajo, con más espacio arriba) =====
-  const ySign = yBox + boxH - 16; // un pelín más abajo
+  // ===== FIRMA (siempre con aire arriba, dentro del recuadro) =====
+  const ySign = signTopY + 26; // firma más abajo
   doc.setFont("helvetica","bold");
   doc.text("Firma:", 60, ySign);
+
   doc.setFont("helvetica","normal");
-  doc.text("_______________________________________________", 110, ySign); // más larga opcional
+  doc.text("_______________________________________________", 110, ySign);
 
   // foto redonda a la derecha (si existe)
   try{
@@ -3536,7 +3542,7 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
     if (A.ferRound){
       const size = 56;
       const xImg = 551 - 16 - size;
-      const yImg = yBox + 42;
+      const yImg = yBox + 44; // centrada con boxH=150
 
       doc.setDrawColor(...C.sand);
       doc.setLineWidth(1);
@@ -3545,6 +3551,7 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
     }
   } catch {}
 }
+
 
 
 
