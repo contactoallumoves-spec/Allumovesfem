@@ -3113,13 +3113,13 @@ function pdfMiniProfile(doc, x, y, scores){
 function pdfNewPage(doc, title, subtitle){
   const C = pdfColors();
 
-  // fondo suave (no saturar tinta)
+  // fondo crema suave (uniforme)
   doc.setFillColor(...C.cream);
-  doc.rect(0,0,595,842,"F");
+  doc.rect(0, 0, 595, 842, "F");
 
-  // header blanco (más “boutique”)
-  doc.setFillColor(255,255,255);
-  doc.roundedRect(34,24,527,86,16,16,"F");
+  // header blanco
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(34, 24, 527, 86, 16, 16, "F");
 
   // línea sandstone
   doc.setDrawColor(...C.sand);
@@ -3128,43 +3128,51 @@ function pdfNewPage(doc, title, subtitle){
 
   // título
   doc.setTextColor(...C.ink);
-  doc.setFont("helvetica","bold");
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
-  doc.text(title, 44, 58);
+  doc.text(String(title || ""), 44, 58);
 
-  doc.setFont("helvetica","normal");
+  // subtítulo
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(12);
-  doc.text(subtitle, 44, 84);
+  doc.text(String(subtitle || ""), 44, 84);
 
   // logo + foto (si existen)
-const A = window.__pdfAssets || {};
-try{
-  if (A.logo){
-    // aro suave
-    doc.setDrawColor(...C.sand);
-    doc.setLineWidth(1);
-    doc.circle(519, 62, 26, "S");
-    doc.addImage(A.logo, dataUrlFmt(A.logo), 495, 38, 48, 48);
-  }
-} catch {}
+  const A = window.__pdfAssets || {};
 
-try{
-  if (A.ferRound){
-    doc.setDrawColor(...C.sand);
-    doc.setLineWidth(1);
-    doc.circle(464, 62, 26, "S");
-    doc.addImage(A.ferRound, dataUrlFmt(A.ferRound), 440, 38, 48, 48);
-  } else if (A.fer){
-    doc.setDrawColor(...C.sand);
-    doc.setLineWidth(1);
-    doc.circle(464, 62, 26, "S");
-    doc.addImage(A.fer, dataUrlFmt(A.fer), 440, 38, 48, 48);
-  }
-} catch {}
+  try{
+    if (A.logo){
+      doc.setDrawColor(...C.sand);
+      doc.setLineWidth(1);
+      doc.circle(519, 62, 26, "S");
+      doc.addImage(A.logo, dataUrlFmt(A.logo), 495, 38, 48, 48);
+    }
+  } catch {}
+
+  try{
+    const img = A.ferRound || A.fer;
+    if (img){
+      doc.setDrawColor(...C.sand);
+      doc.setLineWidth(1);
+      doc.circle(464, 62, 26, "S");
+      doc.addImage(img, dataUrlFmt(img), 440, 38, 48, 48);
+    }
+  } catch {}
+
+  return 130; // <-- ESTO es lo que te falta y por eso se rompe
 }
+
 
 function pdfSection(doc, y, title){
   const C = pdfColors();
+
+  // blindaje: y siempre número
+  const yy = Number(y);
+  y = Number.isFinite(yy) ? yy : 130;
+
+  // blindaje: title siempre string
+  title = (title === undefined || title === null) ? "" : String(title);
+
   doc.setTextColor(...C.ink);
   doc.setFont("helvetica","bold");
   doc.setFontSize(14);
@@ -3182,6 +3190,7 @@ function pdfSection(doc, y, title){
 
   return y + 28;
 }
+
 
 function pdfBox(doc, x, y, w, h){
   const C = pdfColors();
