@@ -3495,26 +3495,40 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
   // caja
   pdfBox(doc, 44, yBox, 507, boxH);
 
-  // texto profesional
+  // título "Profesional"
   doc.setTextColor(...C.ink);
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
   doc.text("Profesional", 60, yBox+26);
 
+  // ===== TEXTO PROFESIONAL (dinámico para que NO se acople) =====
+  const textMaxW = 360; // deja espacio a la derecha para la foto
+
+  // 1) Nombre + cargo (puede ocupar 1–2 líneas)
   doc.setFont("helvetica","bold");
   doc.setFontSize(12);
-   const textMaxW = 360; // deja espacio a la derecha para la foto
-   doc.text(doc.splitTextToSize(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, textMaxW), 60, yBox+46);
-   doc.text(doc.splitTextToSize(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, textMaxW), 60, yBox+70);
-   doc.text(doc.splitTextToSize(`${PROVIDER.correo} · ${PROVIDER.instagram}`, textMaxW), 60, yBox+92);
 
+  const line1 = doc.splitTextToSize(`${PROVIDER.nombre} — ${PROVIDER.cargo}`, textMaxW);
+  doc.text(line1, 60, yBox + 46);
 
-  // firma (DENTRO del recuadro, bien abajo)
-  const ySign = yBox + boxH - 18;
+  // yyText = dónde terminó line1
+  let yyText = (yBox + 46) + (line1.length * 16);
+
+  // 2) RUT + registro (siempre debajo)
+  const line2 = doc.splitTextToSize(`RUT ${PROVIDER.rut} · Registro ${PROVIDER.registro}`, textMaxW);
+  doc.text(line2, 60, yyText + 8);
+  yyText = (yyText + 8) + (line2.length * 16);
+
+  // 3) Correo + IG (debajo)
+  const line3 = doc.splitTextToSize(`${PROVIDER.correo} · ${PROVIDER.instagram}`, textMaxW);
+  doc.text(line3, 60, yyText + 10);
+
+  // ===== FIRMA (abajo, con más espacio arriba) =====
+  const ySign = yBox + boxH - 16; // un pelín más abajo
   doc.setFont("helvetica","bold");
   doc.text("Firma:", 60, ySign);
   doc.setFont("helvetica","normal");
-  doc.text("______________________________", 110, ySign);
+  doc.text("_______________________________________________", 110, ySign); // más larga opcional
 
   // foto redonda a la derecha (si existe)
   try{
@@ -3531,6 +3545,7 @@ function pdfSignatureBottom(doc, currentY, pageTitle, pageSub){
     }
   } catch {}
 }
+
 
 
 // Limpia "evidencia" para PDF (evita exportar claves internas tipo m8.xxx: 6)
